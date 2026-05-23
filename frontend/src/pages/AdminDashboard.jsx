@@ -400,7 +400,8 @@ function TeamsTab({ showToast }) {
 
   // Modal State
   const [showModal, setShowModal] = useState(false);
-  const [formData, setFormData] = useState({ team_name: '', leader_name: '', username: '', password: '', game_id: '' });
+  const [formData, setFormData] = useState({ team_name: '', leader_name: '', game_id: '' });
+  const [success, setSuccess] = useState(null);
 
   const fetchTeams = () => {
     setLoading(true);
@@ -422,14 +423,23 @@ function TeamsTab({ showToast }) {
   const handleCreate = async (e) => {
     e.preventDefault();
     try {
-      await api.post('/teams/create', formData);
+      const res = await api.post('/teams/create', formData);
+      setSuccess(res.data);
       showToast('New team manually created!');
-      setShowModal(false);
-      setFormData({ team_name: '', leader_name: '', username: '', password: '', game_id: '' });
+      setFormData({ team_name: '', leader_name: '', game_id: '' });
       fetchTeams();
     } catch (err) {
       showToast(err.response?.data?.error || 'Failed to create team.', 'error');
     }
+  };
+
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text);
+  };
+
+  const copyAll = (data) => {
+    const text = `Team Name: ${data.team.team_name}\nTeam Unique Code: ${data.team.unique_code}\nTeam Leader Username: ${data.leader_username}\nTeam Leader Password: ${data.leader_password}`;
+    navigator.clipboard.writeText(text);
   };
 
   const deleteTeam = async (id) => {
@@ -450,7 +460,7 @@ function TeamsTab({ showToast }) {
           <h1 className="page-title">Manage Registered Teams</h1>
           <p className="page-subtitle">Add teams manually, view join codes, or remove teams</p>
         </div>
-        <button id="btn-add-team-modal" className="btn btn-primary btn-sm" onClick={() => setShowModal(true)}>➕ Add Team Manually</button>
+        <button id="btn-add-team-modal" className="btn btn-primary btn-sm" onClick={() => { setSuccess(null); setShowModal(true); }}>➕ Add Team Manually</button>
       </div>
 
       {/* Roster Table */}
@@ -510,38 +520,77 @@ function TeamsTab({ showToast }) {
       {showModal && (
         <div className="modal-backdrop">
           <div className="modal">
-            <h2 className="modal-title">Add Team Manually</h2>
-            <form onSubmit={handleCreate}>
-              <div className="form-group">
-                <label className="form-label">Team Name</label>
-                <input id="modal-team-name" name="team_name" className="form-input" value={formData.team_name} onChange={handleChange} required />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Leader Display Name</label>
-                <input id="modal-leader-name" name="leader_name" className="form-input" value={formData.leader_name} onChange={handleChange} required />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Leader Username</label>
-                <input id="modal-leader-user" name="username" className="form-input" value={formData.username} onChange={handleChange} required />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Leader Password</label>
-                <input id="modal-leader-pass" name="password" type="password" className="form-input" value={formData.password} onChange={handleChange} required />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Game / Tournament</label>
-                <select name="game_id" className="form-select" value={formData.game_id} onChange={handleChange} required>
-                  <option value="">Select a tournament...</option>
-                  {games.map(g => (
-                    <option key={g.id} value={g.id}>{g.tournament_name} ({g.game_title})</option>
-                  ))}
-                </select>
-              </div>
-              <div className="modal-actions">
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowModal(false)}>Cancel</button>
-                <button id="modal-submit-btn" type="submit" className="btn btn-primary btn-sm">Add Team</button>
-              </div>
-            </form>
+            {success ? (
+              <>
+                <h2 className="modal-title">🎉 Team Created Manually!</h2>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+                  Please save these credentials to pass to the team leader:
+                </p>
+                <div className="credentials-card" style={{
+                  background: 'rgba(0, 0, 0, 0.25)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '1rem',
+                  marginBottom: '1rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.75rem'
+                }}>
+                  <div>
+                    <label className="form-label" style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.2rem' }}>Team Unique Code</label>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <input id="modal-display-team-code" className="form-input" style={{ fontFamily: 'monospace', flexGrow: 1, padding: '0.3rem 0.5rem', fontSize: '0.85rem' }} readOnly value={success.team.unique_code} />
+                      <button id="modal-copy-team-code-btn" type="button" className="btn btn-secondary btn-sm" style={{ padding: '0.3rem 0.6rem' }} onClick={() => copyToClipboard(success.team.unique_code)}>Copy</button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="form-label" style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.2rem' }}>Team Leader Username</label>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <input id="modal-display-leader-username" className="form-input" style={{ fontFamily: 'monospace', flexGrow: 1, padding: '0.3rem 0.5rem', fontSize: '0.85rem' }} readOnly value={success.leader_username} />
+                      <button id="modal-copy-leader-username-btn" type="button" className="btn btn-secondary btn-sm" style={{ padding: '0.3rem 0.6rem' }} onClick={() => copyToClipboard(success.leader_username)}>Copy</button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="form-label" style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.2rem' }}>Team Leader Password</label>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <input id="modal-display-leader-password" className="form-input" style={{ fontFamily: 'monospace', flexGrow: 1, padding: '0.3rem 0.5rem', fontSize: '0.85rem' }} readOnly value={success.leader_password} />
+                      <button id="modal-copy-leader-password-btn" type="button" className="btn btn-secondary btn-sm" style={{ padding: '0.3rem 0.6rem' }} onClick={() => copyToClipboard(success.leader_password)}>Copy</button>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button id="modal-copy-all-btn" type="button" className="btn btn-secondary btn-sm" style={{ flexGrow: 1 }} onClick={() => copyAll(success)}>Copy All</button>
+                  <button id="modal-done-btn" type="button" className="btn btn-primary btn-sm" style={{ flexGrow: 1 }} onClick={() => { setShowModal(false); setSuccess(null); }}>Done</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2 className="modal-title">Add Team Manually</h2>
+                <form onSubmit={handleCreate}>
+                  <div className="form-group">
+                    <label className="form-label">Team Name</label>
+                    <input id="modal-team-name" name="team_name" className="form-input" value={formData.team_name} onChange={handleChange} required />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Leader Display Name</label>
+                    <input id="modal-leader-name" name="leader_name" className="form-input" value={formData.leader_name} onChange={handleChange} required />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Game / Tournament</label>
+                    <select name="game_id" className="form-select" value={formData.game_id} onChange={handleChange} required>
+                      <option value="">Select a tournament...</option>
+                      {games.map(g => (
+                        <option key={g.id} value={g.id}>{g.tournament_name} ({g.game_title})</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="modal-actions">
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowModal(false)}>Cancel</button>
+                    <button id="modal-submit-btn" type="submit" className="btn btn-primary btn-sm">Add Team</button>
+                  </div>
+                </form>
+              </>
+            )}
           </div>
         </div>
       )}

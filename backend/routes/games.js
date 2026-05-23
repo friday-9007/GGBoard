@@ -46,7 +46,7 @@ router.post('/create', requireAdmin, (req, res) => {
  * GET /games/all
  * Get all games (admin view)
  */
-router.get('/all', (req, res) => {
+router.get('/all', requireAdmin, (req, res) => {
   const db = getDb();
   const games = db.prepare(`
     SELECT g.*, 

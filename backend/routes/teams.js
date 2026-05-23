@@ -15,22 +15,50 @@ const { getDb } = require('../config/db');
 const { requireAdmin, requireTeamLeader, requireAdminOrLeader } = require('../middleware/auth');
 const { generateUniqueCode } = require('../utils/generateCode');
 
+// Helper to generate unique team leader username
+function generateLeaderUsername(teamName, leaderName, db) {
+  const base = (teamName + '_' + leaderName)
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, '') // keep alphanumeric and underscore
+    .substring(0, 15); // limit length
+  
+  let username = base;
+  if (!username) {
+    username = 'leader';
+  }
+  let suffix = 1;
+  while (true) {
+    const exists = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
+    if (!exists) {
+      return username;
+    }
+    username = `${base || 'leader'}_${suffix}`;
+    suffix++;
+  }
+}
+
+// Helper to generate a random password
+function generateRandomPassword(length = 10) {
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let password = '';
+  for (let i = 0; i < length; i++) {
+    password += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return password;
+}
+
 /**
  * POST /teams/create
  * Create a new team + team leader account
  * Public endpoint (used during registration)
  */
 router.post('/create', (req, res) => {
-  const { team_name, leader_name, username, password, game_id } = req.body;
+  const { team_name, leader_name, game_id } = req.body;
 
-  if (!team_name || !leader_name || !username || !password || !game_id) {
+  if (!team_name || !leader_name || !game_id) {
     return res.status(400).json({
-      error: 'All fields are required: team_name, leader_name, username, password, game_id'
+      error: 'All fields are required: team_name, leader_name, game_id'
     });
-  }
-
-  if (password.length < 4) {
-    return res.status(400).json({ error: 'Password must be at least 4 characters.' });
   }
 
   const db = getDb();
@@ -41,11 +69,11 @@ router.post('/create', (req, res) => {
     return res.status(400).json({ error: 'Invalid or inactive game/tournament.' });
   }
 
-  // Check if username is taken
-  const existingUser = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
-  if (existingUser) {
-    return res.status(409).json({ error: 'Username already taken.' });
-  }
+  // Generate unique username
+  const username = generateLeaderUsername(team_name, leader_name, db);
+
+  // Generate random password
+  const password = generateRandomPassword();
 
   // Generate unique team code
   const uniqueCode = generateUniqueCode();
@@ -94,7 +122,9 @@ router.post('/create', (req, res) => {
         team_name,
         unique_code: result.uniqueCode,
         game: game.tournament_name
-      }
+      },
+      leader_username: username,
+      leader_password: password
     });
   } catch (err) {
     if (err.message.includes('UNIQUE constraint')) {

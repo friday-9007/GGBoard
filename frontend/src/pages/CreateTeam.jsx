@@ -9,7 +9,7 @@ import './AuthPages.css';
 
 export default function CreateTeam() {
   const [formData, setFormData] = useState({
-    team_name: '', leader_name: '', username: '', password: '', game_id: ''
+    team_name: '', leader_name: '', game_id: ''
   });
   const [games, setGames] = useState([]);
   const [error, setError] = useState('');
@@ -38,8 +38,13 @@ export default function CreateTeam() {
     }
   };
 
-  const copyCode = () => {
-    navigator.clipboard.writeText(success.team.unique_code);
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text);
+  };
+
+  const copyAll = (data) => {
+    const text = `Team Name: ${data.team.team_name}\nTeam Unique Code: ${data.team.unique_code}\nTeam Leader Username: ${data.leader_username}\nTeam Leader Password: ${data.leader_password}`;
+    navigator.clipboard.writeText(text);
   };
 
   return (
@@ -55,16 +60,54 @@ export default function CreateTeam() {
           </div>
 
           {success ? (
-            <div className="auth-success">
-              <h3>🎉 Team Created!</h3>
-              <p>Share this code with your players to join:</p>
-              <div className="team-code-display" onClick={copyCode} title="Click to copy">
-                {success.team.unique_code}
+            <div className="auth-success" style={{ textAlign: 'left' }}>
+              <h3 style={{ textAlign: 'center' }}>🎉 Team Created!</h3>
+              <p style={{ textAlign: 'center', fontSize: '0.85rem' }}>Please save these credentials now. They will not be shown again.</p>
+              
+              <div className="credentials-card" style={{
+                background: 'rgba(0, 0, 0, 0.25)',
+                border: '1px solid var(--border-color)',
+                borderRadius: 'var(--radius-md)',
+                padding: '1.25rem',
+                margin: '1.25rem 0',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '1rem'
+              }}>
+                <div>
+                  <label className="form-label" style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>Team Unique Code</label>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <input id="display-team-code" className="form-input" style={{ fontFamily: 'monospace', flexGrow: 1, padding: '0.4rem 0.6rem', fontSize: '0.9rem' }} readOnly value={success.team.unique_code} />
+                    <button id="copy-team-code-btn" type="button" className="btn btn-secondary btn-sm" style={{ padding: '0.4rem 0.8rem' }} onClick={() => copyToClipboard(success.team.unique_code)}>Copy</button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="form-label" style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>Team Leader Username</label>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <input id="display-leader-username" className="form-input" style={{ fontFamily: 'monospace', flexGrow: 1, padding: '0.4rem 0.6rem', fontSize: '0.9rem' }} readOnly value={success.leader_username} />
+                    <button id="copy-leader-username-btn" type="button" className="btn btn-secondary btn-sm" style={{ padding: '0.4rem 0.8rem' }} onClick={() => copyToClipboard(success.leader_username)}>Copy</button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="form-label" style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>Team Leader Password</label>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <input id="display-leader-password" className="form-input" style={{ fontFamily: 'monospace', flexGrow: 1, padding: '0.4rem 0.6rem', fontSize: '0.9rem' }} readOnly value={success.leader_password} />
+                    <button id="copy-leader-password-btn" type="button" className="btn btn-secondary btn-sm" style={{ padding: '0.4rem 0.8rem' }} onClick={() => copyToClipboard(success.leader_password)}>Copy</button>
+                  </div>
+                </div>
               </div>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Click the code to copy</p>
-              <Link to="/leader/login" className="btn btn-primary" style={{ marginTop: '1rem', display: 'inline-flex' }}>
-                Login as Team Leader →
-              </Link>
+
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+                <button id="copy-all-btn" type="button" className="btn btn-secondary" style={{ flexGrow: 1 }} onClick={() => copyAll(success)}>Copy All</button>
+                <Link to="/leader/login" className="btn btn-primary" style={{ flexGrow: 1, textAlign: 'center', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                  Login →
+                </Link>
+              </div>
+              <p className="auth-error" style={{ marginTop: '1rem', textAlign: 'center', fontSize: '0.75rem', background: 'rgba(255, 45, 149, 0.1)', border: '1px solid rgba(255, 45, 149, 0.3)', color: 'var(--neon-pink)', padding: '0.5rem' }}>
+                ⚠️ Save these credentials now — they will not be shown again
+              </p>
             </div>
           ) : (
             <>
@@ -77,14 +120,6 @@ export default function CreateTeam() {
                 <div className="form-group">
                   <label className="form-label">Your Name (Leader)</label>
                   <input id="create-leader-name" name="leader_name" className="form-input" value={formData.leader_name} onChange={handleChange} placeholder="Your display name" required />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Username</label>
-                  <input id="create-username" name="username" className="form-input" value={formData.username} onChange={handleChange} placeholder="Choose a login username" required />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Password</label>
-                  <input id="create-password" name="password" type="password" className="form-input" value={formData.password} onChange={handleChange} placeholder="Min 4 characters" required minLength={4} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Tournament</label>
