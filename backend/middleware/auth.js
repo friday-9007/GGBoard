@@ -4,9 +4,16 @@
  */
 
 const jwt = require('jsonwebtoken');
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('\n❌ FATAL: JWT_SECRET is not set.');
+  console.error('   Copy backend/.env.example to backend/.env and set a strong JWT_SECRET.');
+  console.error('   Generate one: node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"\n');
+  process.exit(1);
+}
 
 /**
  * Verify JWT token from Authorization header.
