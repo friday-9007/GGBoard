@@ -77,6 +77,13 @@ export default function LeaderLogin() {
               {loading ? <span className="spinner"></span> : 'Access Team Panel'}
             </button>
           </form>
+
+          <p style={{ textAlign: 'center', marginTop: 'var(--space-lg)', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+            Don't have a team yet?{' '}
+            <Link to="/create-team" style={{ color: 'var(--neon-blue)', fontWeight: 600 }}>
+              Create a team →
+            </Link>
+          </p>
         </div>
       </div>
     </div>

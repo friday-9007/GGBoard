@@ -44,7 +44,7 @@ export default function LandingPage() {
               <span className="logo-board">BOARD</span>
             </h1>
           </div>
-          <p className="landing-tagline">ESPORTS EVENT MANAGEMENT PLATFORM</p>
+          <p className="landing-tagline">ESPORTS EVENT HOSTING PLATFORM</p>
           <div className="landing-divider">
             <div className="divider-line"></div>
             <div className="divider-dot"></div>
@@ -61,7 +61,7 @@ export default function LandingPage() {
           >
             <div className="action-icon">🛡️</div>
             <div className="action-info">
-              <h3>Admin Login</h3>
+              <h3>Admin Login / Sign Up</h3>
               <p>Tournament management & control</p>
             </div>
             <div className="action-arrow">→</div>
@@ -85,10 +85,7 @@ export default function LandingPage() {
             {showPlayerMenu && (
               <div className="sub-menu">
                 <button id="btn-leader-login" className="sub-menu-item" onClick={() => navigate('/leader/login')}>
-                  <span className="sub-icon">👑</span> Login as Team Leader
-                </button>
-                <button id="btn-create-team" className="sub-menu-item" onClick={() => navigate('/create-team')}>
-                  <span className="sub-icon">➕</span> Create a Team
+                  <span className="sub-icon">👑</span> Team Leader Login / Sign Up
                 </button>
                 <button id="btn-join-team" className="sub-menu-item" onClick={() => navigate('/join-team')}>
                   <span className="sub-icon">🤝</span> Join a Team
