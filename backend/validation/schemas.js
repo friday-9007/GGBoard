@@ -17,6 +17,17 @@ const loginSchema = z.object({
   password: z.string().min(1, 'Password is required.'),
 });
 
+// Sign-up = credentials only; the role is chosen afterwards on /auth/select-role.
+const signupSchema = z.object({
+  username: z.string().trim().min(3, 'Username must be at least 3 characters.').max(30, 'Username is too long.'),
+  password: z.string().min(6, 'Password must be at least 6 characters.').max(200),
+  display_name: z.string().trim().max(60, 'Display name is too long.').optional(),
+});
+
+const selectRoleSchema = z.object({
+  role: z.enum(['organizer', 'player']),
+});
+
 const gameCreateSchema = z.object({
   game_title: z.string().trim().min(1, 'Game title is required.').max(80),
   tournament_name: z.string().trim().min(1, 'Tournament name is required.').max(120),
@@ -30,4 +41,4 @@ const scoreUpdateSchema = z.object({
   round_scores: z.array(z.number()).min(1, 'round_scores must be a non-empty array of numbers.'),
 });
 
-module.exports = { registerSchema, loginSchema, gameCreateSchema, scoreUpdateSchema };
+module.exports = { registerSchema, loginSchema, signupSchema, selectRoleSchema, gameCreateSchema, scoreUpdateSchema };

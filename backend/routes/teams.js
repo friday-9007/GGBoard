@@ -1,11 +1,10 @@
 /**
  * Team Routes
- * POST   /teams/create   — Create a new team (public — generates team leader account)
- * GET    /teams/all       — Get all teams (admin only)
- * GET    /teams/my        — Get own team (team leader only)
- * PATCH  /teams/:id       — Update a team
- * PATCH  /teams/my        — Update own team (team leader)
- * DELETE /teams/:id       — Delete a team (admin only)
+ * POST   /teams/create — Create a team (player: self becomes leader; organizer: auto-gen leader account)
+ * GET    /teams/all    — All teams in the organizer's tournaments (admin only)
+ * GET    /teams/my     — Own team + roster (player)
+ * PATCH  /teams/:id    — Update a team (organizer of the tournament, or the team's leader)
+ * DELETE /teams/:id    — Delete a team; member accounts are unlinked, never deleted (admin only)
  */
 
 const express = require('express');
@@ -63,13 +62,20 @@ router.post('/create', requireAdminOrLeader, (req, res) => {
     if (!team_name || !game_id) {
       return res.status(400).json({ error: 'team_name and game_id are required.' });
     }
-    if (req.user.teamId) {
+    // Check membership against the DB, not the token claim — the claim can be
+    // stale (e.g. the player's previous team was deleted after the token was issued).
+    const me = db.prepare('SELECT team_id FROM users WHERE id = ?').get(req.user.id);
+    if (me && me.team_id) {
       return res.status(409).json({ error: 'You already belong to a team.' });
     }
 
     const game = db.prepare("SELECT * FROM games WHERE id = ? AND status = 'active'").get(game_id);
     if (!game) {
       return res.status(400).json({ error: 'Invalid or inactive game/tournament.' });
+    }
+    const dupName = db.prepare('SELECT id FROM teams WHERE team_name = ? AND game_id = ?').get(team_name, game_id);
+    if (dupName) {
+      return res.status(409).json({ error: 'A team with this name already exists in this tournament.' });
     }
 
     const uniqueCode = generateUniqueCode();
@@ -121,6 +127,10 @@ router.post('/create', requireAdminOrLeader, (req, res) => {
   }
   if (game.organizer_id !== req.user.id) {
     return res.status(403).json({ error: 'You can only add teams to your own tournaments.' });
+  }
+  const dupTeamName = db.prepare('SELECT id FROM teams WHERE team_name = ? AND game_id = ?').get(team_name, game_id);
+  if (dupTeamName) {
+    return res.status(409).json({ error: 'A team with this name already exists in this tournament.' });
   }
 
   const username = generateLeaderUsername(team_name, leader_name, db);
@@ -227,14 +237,14 @@ router.patch('/:id', requireAdminOrLeader, (req, res) => {
 
   const db = getDb();
 
-  // Team leader can only edit their own team
-  if (req.user.role === 'team_leader' && req.user.teamId !== parseInt(id)) {
-    return res.status(403).json({ error: 'You can only edit your own team.' });
-  }
-
   const existing = db.prepare('SELECT * FROM teams WHERE id = ?').get(id);
   if (!existing) {
     return res.status(404).json({ error: 'Team not found.' });
+  }
+
+  // Every player carries the team_leader role — only the team's actual leader may edit it
+  if (req.user.role === 'team_leader' && existing.leader_id !== req.user.id) {
+    return res.status(403).json({ error: 'Only the team leader can edit the team.' });
   }
 
   // Organizer can only edit teams within their own tournaments
@@ -272,12 +282,13 @@ router.delete('/:id', requireAdmin, (req, res) => {
     return res.status(403).json({ error: 'You can only delete teams in your own tournaments.' });
   }
 
-  // Delete the team leader user account too
-  if (existing.leader_id) {
-    db.prepare('DELETE FROM users WHERE id = ?').run(existing.leader_id);
-  }
+  // Accounts are real user logins now — never delete them. Instead unlink every
+  // member (leader + joiners) so they can create or join another team.
+  db.transaction(() => {
+    db.prepare('UPDATE users SET team_id = NULL WHERE team_id = ?').run(id);
+    db.prepare('DELETE FROM teams WHERE id = ?').run(id);
+  })();
 
-  db.prepare('DELETE FROM teams WHERE id = ?').run(id);
   res.json({ message: 'Team and all linked data deleted successfully.' });
 });
 

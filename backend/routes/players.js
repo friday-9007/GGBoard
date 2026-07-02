@@ -167,9 +167,17 @@ router.patch('/:id', requireAdminOrLeader, (req, res) => {
     return res.status(404).json({ error: 'Player not found.' });
   }
 
-  // Team leader can only edit players in their own team
-  if (req.user.role === 'team_leader' && existing.team_id !== req.user.teamId) {
-    return res.status(403).json({ error: 'You can only edit players in your own team.' });
+  // Players share the team_leader role — allow the team's actual leader, or self-edit
+  if (req.user.role === 'team_leader') {
+    if (existing.team_id !== req.user.teamId) {
+      return res.status(403).json({ error: 'You can only edit players in your own team.' });
+    }
+    const team = db.prepare('SELECT leader_id FROM teams WHERE id = ?').get(existing.team_id);
+    const isLeader = team && team.leader_id === req.user.id;
+    const isSelf = existing.user_id === req.user.id;
+    if (!isLeader && !isSelf) {
+      return res.status(403).json({ error: 'Only the team leader can edit other players.' });
+    }
   }
 
   // Organizer can only edit players within their own tournaments
@@ -212,9 +220,17 @@ router.delete('/:id', requireAdminOrLeader, (req, res) => {
     return res.status(404).json({ error: 'Player not found.' });
   }
 
-  // Team leader can only delete players in their own team
-  if (req.user.role === 'team_leader' && existing.team_id !== req.user.teamId) {
-    return res.status(403).json({ error: 'You can only remove players from your own team.' });
+  // Players share the team_leader role — allow the team's actual leader, or self-removal
+  if (req.user.role === 'team_leader') {
+    if (existing.team_id !== req.user.teamId) {
+      return res.status(403).json({ error: 'You can only remove players from your own team.' });
+    }
+    const team = db.prepare('SELECT leader_id FROM teams WHERE id = ?').get(existing.team_id);
+    const isLeader = team && team.leader_id === req.user.id;
+    const isSelf = existing.user_id === req.user.id;
+    if (!isLeader && !isSelf) {
+      return res.status(403).json({ error: 'Only the team leader can remove other players.' });
+    }
   }
 
   // Organizer can only remove players within their own tournaments
@@ -225,7 +241,14 @@ router.delete('/:id', requireAdminOrLeader, (req, res) => {
     }
   }
 
-  db.prepare('DELETE FROM players WHERE id = ?').run(id);
+  db.transaction(() => {
+    if (existing.user_id) {
+      // Free the linked account so the removed player can join or create another team
+      db.prepare('UPDATE users SET team_id = NULL WHERE id = ?').run(existing.user_id);
+    }
+    db.prepare('DELETE FROM players WHERE id = ?').run(id);
+  })();
+
   res.json({ message: 'Player deleted successfully.' });
 });
 

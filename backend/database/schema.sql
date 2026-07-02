@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL CHECK(role IN ('admin', 'team_leader')),
+    role_selected INTEGER NOT NULL DEFAULT 1, -- 0 = signed up but role not yet chosen
     display_name TEXT,
     team_id INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP

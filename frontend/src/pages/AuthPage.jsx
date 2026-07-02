@@ -1,6 +1,8 @@
 /**
  * Unified Auth Page — ggBoard
- * One page for Sign In + Sign Up. On Sign Up, choose Organizer or Player.
+ * One page for Sign In + Sign Up. Sign Up collects credentials, then hands off
+ * to /auth/role where the visitor chooses Organizer or Player (account is
+ * created there, so we never persist a role-less account).
  */
 
 import { useState } from 'react';
@@ -13,7 +15,6 @@ import './AuthPage.css';
 export default function AuthPage() {
   const [params] = useSearchParams();
   const [mode, setMode] = useState(params.get('mode') === 'signup' ? 'signup' : 'signin');
-  const [role, setRole] = useState('player'); // signup only: 'player' | 'organizer'
   const [form, setForm] = useState({ username: '', password: '', confirm: '', display_name: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -21,34 +22,35 @@ export default function AuthPage() {
   const { login } = useAuth();
 
   const onChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
-
-  const routeByRole = (user) => {
-    if (user.role === 'admin') navigate('/admin/dashboard');
-    else navigate('/player');
-  };
-
   const switchMode = (m) => { setMode(m); setError(''); };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    if (form.username.trim().length < 3) return setError('Username must be at least 3 characters.');
+
+    const username = form.username.trim();
+    if (username.length < 3) return setError('Username must be at least 3 characters.');
     if (form.password.length < 6) return setError('Password must be at least 6 characters.');
     if (mode === 'signup' && form.password !== form.confirm) return setError('Passwords do not match.');
 
     setLoading(true);
     try {
-      const res = mode === 'signup'
-        ? await api.post('/auth/register', {
-            role,
-            username: form.username.trim(),
-            password: form.password,
-            display_name: form.display_name.trim() || form.username.trim(),
-          })
-        : await api.post('/auth/login', { username: form.username.trim(), password: form.password });
+      if (mode === 'signup') {
+        // Create the account now (so duplicate-username shows here), then go pick a role.
+        const res = await api.post('/auth/signup', {
+          username,
+          password: form.password,
+          display_name: form.display_name.trim() || username,
+        });
+        login(res.data.user, res.data.token); // authenticated, role still pending
+        navigate('/auth/role');
+        return;
+      }
 
+      const res = await api.post('/auth/login', { username, password: form.password });
       login(res.data.user, res.data.token);
-      routeByRole(res.data.user);
+      if (res.data.user.rolePending) navigate('/auth/role');
+      else navigate(res.data.user.role === 'admin' ? '/admin/dashboard' : '/player');
     } catch (err) {
       setError(err.response?.data?.error || 'Something went wrong. Please try again.');
     } finally {
@@ -66,7 +68,7 @@ export default function AuthPage() {
             <div className="auth-icon">🎮</div>
             <h1 className="auth-title">{mode === 'signup' ? 'Create Account' : 'Welcome Back'}</h1>
             <p className="auth-subtitle">
-              {mode === 'signup' ? 'Join GGBoard as an organizer or a player' : 'Sign in to your GGBoard account'}
+              {mode === 'signup' ? 'Create your GGBoard account — you\'ll pick your role next' : 'Sign in to your GGBoard account'}
             </p>
           </div>
 
@@ -80,25 +82,8 @@ export default function AuthPage() {
           <form onSubmit={handleSubmit} className="auth-form">
             {mode === 'signup' && (
               <div className="form-group">
-                <label className="form-label">I am registering as</label>
-                <div className="role-toggle">
-                  <button type="button" className={`role-option ${role === 'player' ? 'active' : ''}`} onClick={() => setRole('player')}>
-                    🎮 Player
-                    <span>Join or create a team</span>
-                  </button>
-                  <button type="button" className={`role-option ${role === 'organizer' ? 'active' : ''}`} onClick={() => setRole('organizer')}>
-                    🛡️ Organizer
-                    <span>Host tournaments</span>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {mode === 'signup' && (
-              <div className="form-group">
-                <label className="form-label">{role === 'organizer' ? 'Organization / Display Name' : 'Display Name'}</label>
-                <input name="display_name" className="form-input" value={form.display_name} onChange={onChange}
-                  placeholder={role === 'organizer' ? 'e.g. Apex Esports' : 'e.g. ShadowStriker'} />
+                <label className="form-label">Display Name</label>
+                <input name="display_name" className="form-input" value={form.display_name} onChange={onChange} placeholder="e.g. ShadowStriker" />
               </div>
             )}
 
@@ -119,7 +104,7 @@ export default function AuthPage() {
             )}
 
             <button id="auth-submit" type="submit" className="btn btn-primary auth-submit" disabled={loading}>
-              {loading ? <span className="spinner"></span> : (mode === 'signup' ? 'Create Account' : 'Sign In')}
+              {loading ? <span className="spinner"></span> : (mode === 'signup' ? 'Continue →' : 'Sign In')}
             </button>
           </form>
 

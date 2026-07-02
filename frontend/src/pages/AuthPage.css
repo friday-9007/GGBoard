@@ -75,3 +75,43 @@
   padding: 0;
 }
 .auth-link-btn:hover { color: var(--neon-cyan); }
+
+/* Role selection cards (post-signup) */
+.role-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-md);
+  margin-top: var(--space-sm);
+}
+
+.role-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  padding: var(--space-lg);
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  text-align: left;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+}
+.role-card:hover:not(:disabled) {
+  border-color: var(--neon-blue);
+  background: rgba(0, 212, 255, 0.06);
+  transform: translateY(-3px);
+  box-shadow: var(--glow-blue);
+}
+.role-card:disabled { opacity: 0.6; cursor: default; }
+
+.role-card-icon { font-size: 2rem; }
+.role-card h3 { font-family: var(--font-heading); font-size: 1.05rem; }
+.role-card p { font-size: 0.82rem; color: var(--text-muted); line-height: 1.5; flex-grow: 1; }
+.role-card-cta { font-size: 0.82rem; font-weight: 600; color: var(--neon-blue); margin-top: var(--space-sm); }
+
+@media (max-width: 520px) {
+  .role-cards { grid-template-columns: 1fr; }
+}

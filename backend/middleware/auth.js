@@ -32,7 +32,9 @@ function verifyToken(req, res, next) {
     req.user = decoded; // { id, username, role, teamId }
     next();
   } catch (err) {
-    return res.status(403).json({ error: 'Invalid or expired token.' });
+    // 401 = authentication failure (bad/expired token); 403 is reserved for
+    // authorization denials so clients can tell "re-login" apart from "not allowed"
+    return res.status(401).json({ error: 'Invalid or expired token.' });
   }
 }
 
@@ -43,11 +45,22 @@ function requireAuth(req, res, next) {
   verifyToken(req, res, next);
 }
 
+// A pending user (signed up but hasn't chosen a role) is blocked from every
+// role-gated route until they finish selecting. Tokens issued before this claim
+// existed have roleSelected === undefined → treated as already-selected.
+function isPending(req) {
+  return req.user.roleSelected === false;
+}
+function pendingBlocked(res) {
+  return res.status(403).json({ error: 'Please choose your account type to continue.', rolePending: true });
+}
+
 /**
  * Require admin role
  */
 function requireAdmin(req, res, next) {
   verifyToken(req, res, () => {
+    if (isPending(req)) return pendingBlocked(res);
     if (req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Admin access required.' });
     }
@@ -60,6 +73,7 @@ function requireAdmin(req, res, next) {
  */
 function requireTeamLeader(req, res, next) {
   verifyToken(req, res, () => {
+    if (isPending(req)) return pendingBlocked(res);
     if (req.user.role !== 'team_leader') {
       return res.status(403).json({ error: 'Team leader access required.' });
     }
@@ -72,6 +86,7 @@ function requireTeamLeader(req, res, next) {
  */
 function requireAdminOrLeader(req, res, next) {
   verifyToken(req, res, () => {
+    if (isPending(req)) return pendingBlocked(res);
     if (req.user.role !== 'admin' && req.user.role !== 'team_leader') {
       return res.status(403).json({ error: 'Admin or team leader access required.' });
     }
@@ -88,7 +103,9 @@ function generateToken(user) {
       id: user.id,
       username: user.username,
       role: user.role,
-      teamId: user.team_id || null
+      teamId: user.team_id || null,
+      // undefined for pre-existing tokens; guards treat only explicit false as pending
+      roleSelected: user.role_selected === undefined ? undefined : !!user.role_selected
     },
     JWT_SECRET,
     { expiresIn: '24h' }

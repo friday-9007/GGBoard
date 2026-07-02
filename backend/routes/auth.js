@@ -9,9 +9,9 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const { getDb } = require('../config/db');
-const { generateToken } = require('../middleware/auth');
+const { generateToken, requireAuth } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
-const { registerSchema, loginSchema } = require('../validation/schemas');
+const { registerSchema, loginSchema, signupSchema, selectRoleSchema } = require('../validation/schemas');
 
 /**
  * POST /auth/admin/login
@@ -187,6 +187,82 @@ router.post('/register', validate(registerSchema), (req, res) => {
 });
 
 /**
+ * POST /auth/signup  (step 1 of 2)
+ * Creates the account from credentials only; the role is chosen next on
+ * /auth/select-role. A pending account has role_selected = 0 and a placeholder
+ * role, and is blocked from every role-gated route until the role is chosen.
+ */
+router.post('/signup', validate(signupSchema), (req, res) => {
+  const { username, password, display_name } = req.body;
+  const db = getDb();
+
+  const uname = String(username).trim();
+  const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(uname);
+  if (existing) {
+    return res.status(409).json({ error: 'That username is already taken.' });
+  }
+
+  const passwordHash = bcrypt.hashSync(password, bcrypt.genSaltSync(10));
+  // Placeholder role satisfies the NOT NULL + CHECK constraint; role_selected = 0
+  // marks it pending, so guards deny access until the real role is chosen.
+  const result = db.prepare(`
+    INSERT INTO users (username, password_hash, role, role_selected, display_name)
+    VALUES (?, ?, 'team_leader', 0, ?)
+  `).run(uname, passwordHash, String(display_name || uname).trim());
+
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
+  const token = generateToken(user);
+
+  res.status(201).json({
+    message: 'Account created. Choose your role to continue.',
+    token,
+    user: {
+      id: user.id,
+      username: user.username,
+      role: null, // not chosen yet
+      displayName: user.display_name,
+      teamId: null,
+      rolePending: true,
+    },
+  });
+});
+
+/**
+ * POST /auth/select-role  (step 2 of 2)
+ * Finalises a pending account's role. Auth required; must still be pending.
+ */
+router.post('/select-role', requireAuth, validate(selectRoleSchema), (req, res) => {
+  const { role } = req.body;
+  const dbRole = { organizer: 'admin', player: 'team_leader' }[role];
+  const db = getDb();
+
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  if (!user) {
+    return res.status(404).json({ error: 'Account not found.' });
+  }
+  if (user.role_selected) {
+    return res.status(409).json({ error: 'Your account type is already set.' });
+  }
+
+  db.prepare('UPDATE users SET role = ?, role_selected = 1 WHERE id = ?').run(dbRole, user.id);
+  const updated = db.prepare('SELECT * FROM users WHERE id = ?').get(user.id);
+  const token = generateToken(updated);
+
+  res.json({
+    message: 'Account type set.',
+    token,
+    user: {
+      id: updated.id,
+      username: updated.username,
+      role: updated.role,
+      displayName: updated.display_name,
+      teamId: updated.team_id || null,
+      rolePending: false,
+    },
+  });
+});
+
+/**
  * POST /auth/login  (unified)
  * Logs in any user (organizer/admin or player/team_leader) by username.
  */
@@ -203,15 +279,17 @@ router.post('/login', validate(loginSchema), (req, res) => {
   }
 
   const token = generateToken(user);
+  const rolePending = !user.role_selected;
   res.json({
     message: 'Login successful.',
     token,
     user: {
       id: user.id,
       username: user.username,
-      role: user.role,
+      role: rolePending ? null : user.role,
       displayName: user.display_name,
       teamId: user.team_id || null,
+      rolePending,
     },
   });
 });

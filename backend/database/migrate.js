@@ -50,6 +50,19 @@ const migrations = [
       return 'skip (user_id already present)';
     },
   },
+  {
+    id: '003_add_role_selected_to_users',
+    up(db) {
+      if (!hasColumn(db, 'users', 'role_selected')) {
+        // 1 = the user has chosen their role (organizer/player); 0 = pending
+        // (account created at sign-up, role not yet picked). Existing rows are
+        // real accounts, so they default to 1.
+        db.exec(`ALTER TABLE users ADD COLUMN role_selected INTEGER NOT NULL DEFAULT 1`);
+        return 'added users.role_selected';
+      }
+      return 'skip (role_selected already present)';
+    },
+  },
 ];
 
 function migrate() {

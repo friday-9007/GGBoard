@@ -27,13 +27,15 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401 || error.response?.status === 403) {
-      // Token expired or unauthorized
+    // Only 401 (missing/expired/invalid token) ends the session.
+    // 403 is an authorization denial — surface it, don't log the user out.
+    if (error.response?.status === 401) {
       const currentPath = window.location.pathname;
-      if (currentPath.startsWith('/admin') || currentPath.startsWith('/leader')) {
+      const protectedPrefixes = ['/admin', '/leader', '/player', '/create-team', '/join-team'];
+      if (protectedPrefixes.some((p) => currentPath.startsWith(p))) {
         localStorage.removeItem('ggboard_token');
         localStorage.removeItem('ggboard_user');
-        window.location.href = '/';
+        window.location.href = '/auth';
       }
     }
     return Promise.reject(error);

@@ -143,6 +143,7 @@ erDiagram
         TEXT username "UNIQUE NOT NULL"
         TEXT password_hash "bcrypt NOT NULL"
         TEXT role "admin|team_leader CHECK"
+        INTEGER role_selected "1=chosen, 0=pending signup"
         TEXT display_name "nullable"
         INTEGER team_id "soft link - NO FK"
         DATETIME created_at "default now"
@@ -193,8 +194,10 @@ Base URL `http://localhost:3001` (hardcoded in [`frontend/src/utils/api.js`](fro
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
 | GET | `/health` | Public | Liveness check |
-| POST | `/auth/register` | Public | Unified sign-up — organizer or player → JWT |
-| POST | `/auth/login` | Public | Unified login — any role → JWT |
+| POST | `/auth/signup` | Public | Step 1 — create account (credentials only) → JWT, `rolePending` |
+| POST | `/auth/select-role` | Auth (pending) | Step 2 — finalise role (organizer/player); required before any app access |
+| POST | `/auth/register` | Public | Legacy one-shot sign-up with role (kept for compat) |
+| POST | `/auth/login` | Public | Unified login — returns `rolePending` if role not yet chosen |
 | POST | `/auth/admin/login` | Public | Admin/organizer login → JWT |
 | POST | `/auth/admin/register` | Public | Organizer self sign-up → JWT (multi-tenant) |
 | POST | `/auth/leader/login` | Public | Team-leader login → JWT |
@@ -220,7 +223,7 @@ Base URL `http://localhost:3001` (hardcoded in [`frontend/src/utils/api.js`](fro
 
 > **Multi-tenant scoping (organizers):** every **Admin** management endpoint is owner-scoped via `games.organizer_id` — an organizer can only read/modify their **own** games, teams, players, scores, and exports (cross-org access returns `403`). **Public** read endpoints (`/games/active`, `/scores/:gameId`) stay global so visitors can browse tournaments and scoreboards across all organizers.
 
-> **Doc/code drift:** the header comment in [`teams.js`](backend/routes/teams.js#L7) advertises a `PATCH /teams/my`, but no such route is registered — team updates go through `PATCH /teams/:id` with an ownership check. Flagged in the risk register below.
+> **Auth status-code contract:** `401` always means "re-authenticate" (missing/expired/invalid token — the SPA clears the session and redirects to `/auth`); `403` always means "authenticated but not allowed" (wrong role, not the owner/leader) and never logs the user out.
 
 ---
 
@@ -246,8 +249,8 @@ Base URL `http://localhost:3001` (hardcoded in [`frontend/src/utils/api.js`](fro
 | 🟡 P2 | No data-access layer — raw SQL inline in handlers | all routers | Hurts testability; makes any DB swap painful |
 | 🟡 P2 | `better-sqlite3` sync + single local file | [`config/db.js`](backend/config/db.js) | Single-node only; can't run serverless/edge |
 | 🟡 P2 | Token restored from `localStorage` without server re-validation | [`AuthContext.jsx`](frontend/src/context/AuthContext.jsx) | Expired token shows "authenticated" until first API 401 |
-| 🟡 P2 | `users.team_id` has no FK constraint | [`schema.sql:26`](backend/database/schema.sql#L26) | User↔team integrity depends entirely on app code |
-| ⚪ P3 | Doc/code drift: `PATCH /teams/my` documented but not implemented | [`teams.js:7`](backend/routes/teams.js#L7) | Misleading; confuses API consumers |
+| 🟡 P2 | `users.team_id` has no FK constraint — **mitigated**: lifecycle code now clears it on team delete / player removal, and membership guards read the DB (not the token claim) | [`teams.js`](backend/routes/teams.js), [`players.js`](backend/routes/players.js) | Residual risk only if new write paths forget the unlink step |
+| ✅ ~~P3~~ | **Resolved** — `teams.js` header comment updated to match registered routes | [`teams.js:1`](backend/routes/teams.js#L1) | — |
 
 > The original **P0**s and the migration **P1** are now resolved (above). The remaining P1 (validation) and P2 items are not blockers for current features.
 
@@ -309,7 +312,8 @@ flowchart LR
 - **ADR-001 — Document the architecture before changing it.** *Accepted.* Before committing to a deployment/data target, capture the as-built system, data model, API surface, and risks (this document). Rationale: avoid premature migration; make the trade-offs in §8 explicit first.
 - **ADR-002 — Target architecture.** *Open.* Choose between Options A/B/C in §8. Gating factor: the `better-sqlite3` single-node constraint (P2). P0/P1 hardening proceeds regardless.
 - **ADR-003 — Multi-tenant organizer model.** *Accepted.* Each admin is an independent **organizer** scoped to their own tournaments via `games.organizer_id`, with self sign-up (`POST /auth/admin/register`). The `admin` role value is reused (no role-enum change); public browsing/registration/scoreboard stay global. A platform-wide super-admin is intentionally out of scope for now.
-- **ADR-004 — Unified auth + self-registered players.** *Accepted.* A single `/auth` page handles Sign In + Sign Up; sign-up asks **Organizer or Player**. Players self-register (own credentials) and then create or join a team (`players.user_id` links the account; one team per player). The `team_leader` role is reused for player accounts (no enum change). Auto-generated leader credentials are **removed from the player flow** but retained for the **admin manual add-team** path (role-branched in `POST /teams/create`). Creating/joining returns a refreshed JWT. Old per-role endpoints are kept for backward compatibility.
+- **ADR-004 — Unified auth + self-registered players.** *Accepted.* A single `/auth` page handles Sign In + Sign Up. Players self-register (own credentials) and then create or join a team (`players.user_id` links the account; one team per player). The `team_leader` role is reused for player accounts (no enum change). Auto-generated leader credentials are **removed from the player flow** but retained for the **admin manual add-team** path (role-branched in `POST /teams/create`). Creating/joining returns a refreshed JWT. Old per-role endpoints are kept for backward compatibility.
+- **ADR-005 — Two-step sign-up with mandatory role selection.** *Accepted.* Sign-up is split: `POST /auth/signup` creates the account from credentials only (so a duplicate username is reported on the sign-up form) and returns an authenticated but **pending** session (`users.role_selected = 0`, placeholder role). The user must then pick Organizer/Player on `/auth/role` → `POST /auth/select-role`. Enforcement is defense-in-depth: the JWT carries `roleSelected`, every role guard returns `403` for a pending token, and the SPA's `ProtectedRoute` + post-login routing force a pending user to `/auth/role` on every entry (including a later sign-in after abandoning the step). Role is chosen once and can't be re-selected (`409`). Chosen over a DB-nullable role to avoid a risky SQLite table rebuild.
 
 ---
 

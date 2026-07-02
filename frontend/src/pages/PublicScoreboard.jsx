@@ -29,7 +29,7 @@ export default function PublicScoreboard() {
       .finally(() => setLoading(false));
   }, []);
 
-  // Fetch scoreboard when selected game changes
+  // Fetch scoreboard when selected game changes, then keep it live (15s polling)
   useEffect(() => {
     if (!selectedGameId) return;
 
@@ -41,6 +41,14 @@ export default function PublicScoreboard() {
       })
       .catch(() => setError('Failed to load scoreboard data.'))
       .finally(() => setLoading(false));
+
+    const interval = setInterval(() => {
+      // Silent refresh — no spinner, keep stale data on transient failures
+      api.get(`/scores/${selectedGameId}`)
+        .then(res => setScoreboardData(res.data))
+        .catch(() => {});
+    }, 15000);
+    return () => clearInterval(interval);
   }, [selectedGameId]);
 
   return (

@@ -19,6 +19,8 @@
 - ✅ Implemented **multi-tenant organizers** (ADR-003): `games.organizer_id` + migration, organizer sign-up (`/auth/admin/register`) + AdminRegister page, all admin endpoints owner-scoped; isolation verified
 - ✅ **Unified auth + self-registered players** (ADR-004): one `/auth` page (Sign In/Sign Up + Organizer/Player), accounts-first create/join, `players.user_id`, player hub (`/player`), landing "Get Started"; full flow verified (12/12)
 - ✅ **Security hardening** (via Context7 MCP): `express-rate-limit` on `/auth` + global, Zod input validation on auth/game/score endpoints; verified
+- ✅ **Two-step sign-up + mandatory role (ADR-005)** — `POST /auth/signup` creates the account on "Continue" (duplicate username shows on the sign-up form), then `/auth/role` (Organizer/Player cards) finalises via `POST /auth/select-role`. Pending accounts (`users.role_selected=0`, migration 003) are blocked from every role-gated route (`403`) and force-redirected to `/auth/role` — including on a later sign-in if the user closed the site before choosing. Verified: 11/11 tests.
+- ✅ **Audit pass (Fable 5)** — fixed 6 flaws: team delete no longer destroys/strands accounts; player removal frees the linked account; leader-only powers (members can't rename team / kick teammates, self-leave allowed); 401-vs-403 semantics (403 no longer logs users out); stale-token membership guard reads DB; duplicate team names blocked per tournament. Plus: 15s live scoreboard polling, legacy routes redirected to `/auth`/`/player`, diagrams re-rendered. 12/12 regression tests pass.
 - 🔎 Reconciled this checklist with verified code state (below)
 
 ### Phase status at a glance
@@ -268,7 +270,7 @@
 - [x] Table columns: Rank, Team Name, dynamic Round columns, Total Score
 - [x] Sorted descending by total score automatically
 - [x] Styled with esports theme (top-3 highlight 🥇🥈🥉)
-- [ ] Refresh/live update indicator (polling or websocket)  ⚠️ *fetches on mount + game change only; no auto-refresh yet*
+- [x] Refresh/live update — silent 15s polling on the public scoreboard
 - [x] API endpoint: `GET /scores/:gameId`
 
 ---
@@ -279,7 +281,7 @@
 - [x] Forms have validation  ⚠️ *client = HTML `required`; server = presence checks (no schema validation lib yet)*
 - [x] Invalid team code → clear error message
 - [x] Duplicate player in same team → rejected with message
-- [ ] Duplicate team name → warning or block  ⚠️ *not enforced — `team_name` is not unique in the schema (only `unique_code` is)*
+- [x] Duplicate team name → blocked with 409, scoped per tournament (player + admin create paths)
 - [x] Admin deletes game → linked teams/scores handled (cascade)
 - [x] Empty scoreboard state → placeholder message
 

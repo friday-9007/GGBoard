@@ -2,15 +2,12 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider, useAuth } from './context/AuthContext';
 import LandingPage from './pages/LandingPage';
 import AuthPage from './pages/AuthPage';
-import AdminLogin from './pages/AdminLogin';
-import AdminRegister from './pages/AdminRegister';
-import LeaderLogin from './pages/LeaderLogin';
+import RoleSelect from './pages/RoleSelect';
 import CreateTeam from './pages/CreateTeam';
 import JoinTeam from './pages/JoinTeam';
 import PlayerHub from './pages/PlayerHub';
 import PublicScoreboard from './pages/PublicScoreboard';
 import AdminDashboard from './pages/AdminDashboard';
-import LeaderDashboard from './pages/LeaderDashboard';
 
 // Protected Route Guard
 function ProtectedRoute({ children, requiredRole }) {
@@ -29,6 +26,11 @@ function ProtectedRoute({ children, requiredRole }) {
     return <Navigate to="/auth" replace />;
   }
 
+  // Signed up but hasn't chosen a role yet — force the selection step first
+  if (user?.rolePending) {
+    return <Navigate to="/auth/role" replace />;
+  }
+
   if (requiredRole && user.role !== requiredRole) {
     return <Navigate to="/" replace />;
   }
@@ -44,10 +46,13 @@ export default function App() {
           {/* Public Routes */}
           <Route path="/" element={<LandingPage />} />
           <Route path="/auth" element={<AuthPage />} />
-          <Route path="/admin/login" element={<AdminLogin />} />
-          <Route path="/admin/register" element={<AdminRegister />} />
-          <Route path="/leader/login" element={<LeaderLogin />} />
+          <Route path="/auth/role" element={<RoleSelect />} />
           <Route path="/scoreboard" element={<PublicScoreboard />} />
+
+          {/* Legacy auth entry points → unified /auth */}
+          <Route path="/admin/login" element={<Navigate to="/auth?mode=signin" replace />} />
+          <Route path="/admin/register" element={<Navigate to="/auth?mode=signup" replace />} />
+          <Route path="/leader/login" element={<Navigate to="/auth?mode=signin" replace />} />
 
           {/* Protected Player Routes */}
           <Route
@@ -85,15 +90,8 @@ export default function App() {
             }
           />
 
-          {/* Protected Team Leader Routes */}
-          <Route
-            path="/leader/dashboard"
-            element={
-              <ProtectedRoute requiredRole="team_leader">
-                <LeaderDashboard />
-              </ProtectedRoute>
-            }
-          />
+          {/* Legacy leader dashboard → player hub */}
+          <Route path="/leader/dashboard" element={<Navigate to="/player" replace />} />
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />
