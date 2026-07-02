@@ -9,6 +9,7 @@ const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const errorHandler = require('./middleware/errorHandler');
+const { apiLimiter, authLimiter } = require('./middleware/rateLimit');
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -27,9 +28,10 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json());
+app.use(apiLimiter);
 
 // ─── API Routes ──────────────────────────────────────
-app.use('/auth', authRoutes);
+app.use('/auth', authLimiter, authRoutes);
 app.use('/games', gameRoutes);
 app.use('/teams', teamRoutes);
 app.use('/players', playerRoutes);

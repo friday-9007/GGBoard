@@ -12,7 +12,7 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const { getDb } = require('../config/db');
-const { requireAdmin, requireTeamLeader, requireAdminOrLeader } = require('../middleware/auth');
+const { requireAdmin, requireTeamLeader, requireAdminOrLeader, generateToken } = require('../middleware/auth');
 const { generateUniqueCode } = require('../utils/generateCode');
 
 // Helper to generate unique team leader username
@@ -49,82 +49,110 @@ function generateRandomPassword(length = 10) {
 
 /**
  * POST /teams/create
- * Create a new team + team leader account
- * Public endpoint (used during registration)
+ * Protected. Behaviour depends on the caller's role:
+ *  - team_leader (player): the caller becomes the team's leader (self-service).
+ *  - admin (organizer): manually creates a team + auto-generated leader account.
  */
-router.post('/create', (req, res) => {
-  const { team_name, leader_name, game_id } = req.body;
+router.post('/create', requireAdminOrLeader, (req, res) => {
+  const db = getDb();
 
-  if (!team_name || !leader_name || !game_id) {
-    return res.status(400).json({
-      error: 'All fields are required: team_name, leader_name, game_id'
+  // ─── Player self-service: caller becomes the leader ───
+  if (req.user.role === 'team_leader') {
+    const { team_name, game_id } = req.body;
+
+    if (!team_name || !game_id) {
+      return res.status(400).json({ error: 'team_name and game_id are required.' });
+    }
+    if (req.user.teamId) {
+      return res.status(409).json({ error: 'You already belong to a team.' });
+    }
+
+    const game = db.prepare("SELECT * FROM games WHERE id = ? AND status = 'active'").get(game_id);
+    if (!game) {
+      return res.status(400).json({ error: 'Invalid or inactive game/tournament.' });
+    }
+
+    const uniqueCode = generateUniqueCode();
+    let teamId;
+    try {
+      teamId = db.transaction(() => {
+        const teamResult = db.prepare(`
+          INSERT INTO teams (team_name, unique_code, game_id, leader_id)
+          VALUES (?, ?, ?, ?)
+        `).run(team_name, uniqueCode, game_id, req.user.id);
+        const tId = teamResult.lastInsertRowid;
+
+        db.prepare('UPDATE users SET team_id = ? WHERE id = ?').run(tId, req.user.id);
+        db.prepare(`INSERT INTO scores (team_id, game_id, round_scores, total_score) VALUES (?, ?, '[]', 0)`).run(tId, game_id);
+        return tId;
+      })();
+    } catch (err) {
+      if (err.message.includes('UNIQUE constraint')) {
+        return res.status(409).json({ error: 'Team name or code already exists.' });
+      }
+      throw err;
+    }
+
+    // Refresh token so it now carries the new teamId
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+    const token = generateToken(user);
+
+    return res.status(201).json({
+      message: 'Team created successfully!',
+      team: { id: teamId, team_name, unique_code: uniqueCode, game: game.tournament_name },
+      token,
+      user: {
+        id: user.id, username: user.username, role: user.role,
+        displayName: user.display_name, teamId: user.team_id,
+      },
     });
   }
 
-  const db = getDb();
+  // ─── Organizer manual add: auto-generate a leader account ───
+  const { team_name, leader_name, game_id } = req.body;
 
-  // Check if game exists and is active
+  if (!team_name || !leader_name || !game_id) {
+    return res.status(400).json({ error: 'All fields are required: team_name, leader_name, game_id' });
+  }
+
   const game = db.prepare("SELECT * FROM games WHERE id = ? AND status = 'active'").get(game_id);
   if (!game) {
     return res.status(400).json({ error: 'Invalid or inactive game/tournament.' });
   }
+  if (game.organizer_id !== req.user.id) {
+    return res.status(403).json({ error: 'You can only add teams to your own tournaments.' });
+  }
 
-  // Generate unique username
   const username = generateLeaderUsername(team_name, leader_name, db);
-
-  // Generate random password
   const password = generateRandomPassword();
-
-  // Generate unique team code
+  const passwordHash = bcrypt.hashSync(password, bcrypt.genSaltSync(10));
   const uniqueCode = generateUniqueCode();
 
-  // Hash password
-  const salt = bcrypt.genSaltSync(10);
-  const passwordHash = bcrypt.hashSync(password, salt);
-
-  // Use a transaction to create both team and user atomically
   const createTeam = db.transaction(() => {
-    // Create team leader user
     const userResult = db.prepare(`
       INSERT INTO users (username, password_hash, role, display_name)
       VALUES (?, ?, 'team_leader', ?)
     `).run(username, passwordHash, leader_name);
-
     const leaderId = userResult.lastInsertRowid;
 
-    // Create team
     const teamResult = db.prepare(`
       INSERT INTO teams (team_name, unique_code, game_id, leader_id)
       VALUES (?, ?, ?, ?)
     `).run(team_name, uniqueCode, game_id, leaderId);
-
     const teamId = teamResult.lastInsertRowid;
 
-    // Link user to team
     db.prepare('UPDATE users SET team_id = ? WHERE id = ?').run(teamId, leaderId);
-
-    // Create a score entry for this team in this game
-    db.prepare(`
-      INSERT INTO scores (team_id, game_id, round_scores, total_score)
-      VALUES (?, ?, '[]', 0)
-    `).run(teamId, game_id);
-
-    return { teamId, leaderId, uniqueCode };
+    db.prepare(`INSERT INTO scores (team_id, game_id, round_scores, total_score) VALUES (?, ?, '[]', 0)`).run(teamId, game_id);
+    return teamId;
   });
 
   try {
-    const result = createTeam();
-
+    const teamId = createTeam();
     res.status(201).json({
       message: 'Team created successfully!',
-      team: {
-        id: result.teamId,
-        team_name,
-        unique_code: result.uniqueCode,
-        game: game.tournament_name
-      },
+      team: { id: teamId, team_name, unique_code: uniqueCode, game: game.tournament_name },
       leader_username: username,
-      leader_password: password
+      leader_password: password,
     });
   } catch (err) {
     if (err.message.includes('UNIQUE constraint')) {
@@ -151,9 +179,10 @@ router.get('/all', requireAdmin, (req, res) => {
     LEFT JOIN games g ON g.id = t.game_id
     LEFT JOIN users u ON u.id = t.leader_id
     LEFT JOIN players p ON p.team_id = t.id
+    WHERE g.organizer_id = ?
     GROUP BY t.id
     ORDER BY t.created_at DESC
-  `).all();
+  `).all(req.user.id);
 
   res.json({ teams });
 });
@@ -208,6 +237,14 @@ router.patch('/:id', requireAdminOrLeader, (req, res) => {
     return res.status(404).json({ error: 'Team not found.' });
   }
 
+  // Organizer can only edit teams within their own tournaments
+  if (req.user.role === 'admin') {
+    const game = db.prepare('SELECT organizer_id FROM games WHERE id = ?').get(existing.game_id);
+    if (!game || game.organizer_id !== req.user.id) {
+      return res.status(403).json({ error: 'You can only edit teams in your own tournaments.' });
+    }
+  }
+
   if (team_name) {
     db.prepare('UPDATE teams SET team_name = ? WHERE id = ?').run(team_name, id);
   }
@@ -227,6 +264,12 @@ router.delete('/:id', requireAdmin, (req, res) => {
   const existing = db.prepare('SELECT * FROM teams WHERE id = ?').get(id);
   if (!existing) {
     return res.status(404).json({ error: 'Team not found.' });
+  }
+
+  // Organizer can only delete teams within their own tournaments
+  const game = db.prepare('SELECT organizer_id FROM games WHERE id = ?').get(existing.game_id);
+  if (!game || game.organizer_id !== req.user.id) {
+    return res.status(403).json({ error: 'You can only delete teams in your own tournaments.' });
   }
 
   // Delete the team leader user account too

@@ -24,15 +24,15 @@ router.post('/', requireAdmin, (req, res) => {
 
   if (data_type === 'players') {
     let query = `SELECT p.full_name, p.in_game_name, p.email, p.phone, t.team_name, g.game_title, g.tournament_name
-      FROM players p LEFT JOIN teams t ON t.id = p.team_id LEFT JOIN games g ON g.id = t.game_id WHERE 1=1`;
-    const params = [];
+      FROM players p LEFT JOIN teams t ON t.id = p.team_id LEFT JOIN games g ON g.id = t.game_id WHERE g.organizer_id = ?`;
+    const params = [req.user.id];
     if (game_id) { query += ' AND t.game_id = ?'; params.push(game_id); }
     rows = db.prepare(query).all(...params);
     headers = fields || ['team_name', 'full_name', 'in_game_name', 'email', 'phone', 'game_title'];
   } else if (data_type === 'scores') {
     let query = `SELECT t.team_name, s.round_scores, s.total_score, g.game_title, g.tournament_name
-      FROM scores s LEFT JOIN teams t ON t.id = s.team_id LEFT JOIN games g ON g.id = s.game_id WHERE 1=1`;
-    const params = [];
+      FROM scores s LEFT JOIN teams t ON t.id = s.team_id LEFT JOIN games g ON g.id = s.game_id WHERE g.organizer_id = ?`;
+    const params = [req.user.id];
     if (game_id) { query += ' AND s.game_id = ?'; params.push(game_id); }
     query += ' ORDER BY s.total_score DESC';
     rows = db.prepare(query).all(...params);
@@ -40,8 +40,8 @@ router.post('/', requireAdmin, (req, res) => {
   } else if (data_type === 'combined') {
     let query = `SELECT t.team_name, p.full_name, p.in_game_name, s.round_scores, s.total_score, g.game_title
       FROM players p LEFT JOIN teams t ON t.id = p.team_id LEFT JOIN scores s ON s.team_id = t.id AND s.game_id = t.game_id
-      LEFT JOIN games g ON g.id = t.game_id WHERE 1=1`;
-    const params = [];
+      LEFT JOIN games g ON g.id = t.game_id WHERE g.organizer_id = ?`;
+    const params = [req.user.id];
     if (game_id) { query += ' AND t.game_id = ?'; params.push(game_id); }
     rows = db.prepare(query).all(...params);
     headers = fields || ['team_name', 'full_name', 'in_game_name', 'round_scores', 'total_score', 'game_title'];

@@ -11,12 +11,14 @@ const express = require('express');
 const router = express.Router();
 const { getDb } = require('../config/db');
 const { requireAdmin } = require('../middleware/auth');
+const { validate } = require('../middleware/validate');
+const { gameCreateSchema } = require('../validation/schemas');
 
 /**
  * POST /games/create
  * Create a new game/tournament
  */
-router.post('/create', requireAdmin, (req, res) => {
+router.post('/create', requireAdmin, validate(gameCreateSchema), (req, res) => {
   const { game_title, tournament_name, status, num_rounds } = req.body;
 
   if (!game_title || !tournament_name) {
@@ -25,13 +27,14 @@ router.post('/create', requireAdmin, (req, res) => {
 
   const db = getDb();
   const result = db.prepare(`
-    INSERT INTO games (game_title, tournament_name, status, num_rounds)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO games (game_title, tournament_name, status, num_rounds, organizer_id)
+    VALUES (?, ?, ?, ?, ?)
   `).run(
     game_title,
     tournament_name,
     status || 'active',
-    num_rounds || 3
+    num_rounds || 3,
+    req.user.id
   );
 
   const game = db.prepare('SELECT * FROM games WHERE id = ?').get(result.lastInsertRowid);
@@ -49,13 +52,14 @@ router.post('/create', requireAdmin, (req, res) => {
 router.get('/all', requireAdmin, (req, res) => {
   const db = getDb();
   const games = db.prepare(`
-    SELECT g.*, 
+    SELECT g.*,
            COUNT(DISTINCT t.id) as team_count
     FROM games g
     LEFT JOIN teams t ON t.game_id = g.id
+    WHERE g.organizer_id = ?
     GROUP BY g.id
     ORDER BY g.created_at DESC
-  `).all();
+  `).all(req.user.id);
 
   res.json({ games });
 });
@@ -83,6 +87,10 @@ router.patch('/:id', requireAdmin, (req, res) => {
 
   if (!existing) {
     return res.status(404).json({ error: 'Game not found.' });
+  }
+
+  if (existing.organizer_id !== req.user.id) {
+    return res.status(403).json({ error: 'You can only edit your own tournaments.' });
   }
 
   db.prepare(`
@@ -115,6 +123,10 @@ router.delete('/:id', requireAdmin, (req, res) => {
   const existing = db.prepare('SELECT * FROM games WHERE id = ?').get(id);
   if (!existing) {
     return res.status(404).json({ error: 'Game not found.' });
+  }
+
+  if (existing.organizer_id !== req.user.id) {
+    return res.status(403).json({ error: 'You can only delete your own tournaments.' });
   }
 
   db.prepare('DELETE FROM games WHERE id = ?').run(id);

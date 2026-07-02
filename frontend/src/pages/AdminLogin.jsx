@@ -77,6 +77,13 @@ export default function AdminLogin() {
               {loading ? <span className="spinner"></span> : 'Access Admin Panel'}
             </button>
           </form>
+
+          <p style={{ textAlign: 'center', marginTop: 'var(--space-lg)', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+            New organizer?{' '}
+            <Link to="/admin/register" style={{ color: 'var(--neon-blue)', fontWeight: 600 }}>
+              Create an account →
+            </Link>
+          </p>
         </div>
       </div>
     </div>

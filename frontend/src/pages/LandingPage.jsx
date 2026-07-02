@@ -1,16 +1,43 @@
 /**
  * Landing Page — ggBoard
- * Esports-themed entry point with animated background
+ * Introduction / marketing page explaining what GGBoard is, with
+ * Sign In (Team Leader login) and Sign Up (Create Team) entry points.
  */
 
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import './LandingPage.css';
 
-export default function LandingPage() {
-  const navigate = useNavigate();
-  const [showPlayerMenu, setShowPlayerMenu] = useState(false);
+const FEATURES = [
+  {
+    icon: '🛡️',
+    title: 'Tournament Control',
+    desc: 'Admins create games & tournaments, set custom round counts, toggle status, and export rosters or standings to CSV.',
+  },
+  {
+    icon: '🎮',
+    title: 'Instant Team Registration',
+    desc: 'Sign up as a player, create a team, and instantly get a unique join code to share with your teammates.',
+  },
+  {
+    icon: '🤝',
+    title: 'Easy Player Onboarding',
+    desc: 'Players join their squad in seconds using only the team code. Rosters update automatically.',
+  },
+  {
+    icon: '🏆',
+    title: 'Live Ranked Scoreboards',
+    desc: 'Per-round scoring with automatic totals and live rankings that spotlight the top three teams.',
+  },
+];
 
+const STEPS = [
+  { n: '01', title: 'Organizer creates a tournament', desc: 'An organizer signs up and sets the game, tournament name, and number of rounds.' },
+  { n: '02', title: 'Player creates a team', desc: 'A player signs up, creates a team for a tournament, and gets a unique join code.' },
+  { n: '03', title: 'Teammates join', desc: 'Other players sign up and enter the team code to join the roster.' },
+  { n: '04', title: 'Scores go live', desc: 'The organizer posts round scores; the public scoreboard ranks teams in real time.' },
+];
+
+export default function LandingPage() {
   return (
     <div className="landing">
       {/* Animated background */}
@@ -28,89 +55,97 @@ export default function LandingPage() {
               left: `${Math.random() * 100}%`,
               top: `${Math.random() * 100}%`,
               animationDelay: `${Math.random() * 5}s`,
-              animationDuration: `${3 + Math.random() * 4}s`
+              animationDuration: `${3 + Math.random() * 4}s`,
             }}></div>
           ))}
         </div>
       </div>
 
-      {/* Content */}
       <div className="landing-content">
-        <div className="landing-hero">
-          <div className="logo-container">
-            <div className="logo-glow"></div>
-            <h1 className="logo-text">
-              <span className="logo-gg">GG</span>
-              <span className="logo-board">BOARD</span>
-            </h1>
+        {/* ─── Top Navigation ─── */}
+        <nav className="landing-nav">
+          <Link to="/" className="nav-logo">
+            <span className="logo-gg">GG</span><span className="logo-board">BOARD</span>
+          </Link>
+          <div className="nav-links">
+            <Link to="/scoreboard" className="nav-link">Scoreboard</Link>
+            <Link to="/auth?mode=signin" className="nav-link">Sign In</Link>
+            <Link to="/auth?mode=signup" id="nav-get-started" className="btn btn-primary btn-sm">Get Started</Link>
           </div>
-          <p className="landing-tagline">ESPORTS EVENT HOSTING PLATFORM</p>
-          <div className="landing-divider">
-            <div className="divider-line"></div>
-            <div className="divider-dot"></div>
-            <div className="divider-line"></div>
+        </nav>
+
+        {/* ─── Hero ─── */}
+        <header className="hero">
+          <span className="hero-eyebrow">🎮 Esports Event Management Platform</span>
+          <h1 className="hero-title">
+            Run Esports Tournaments,<br />
+            <span className="hero-accent">End&nbsp;to&nbsp;End.</span>
+          </h1>
+          <p className="hero-desc">
+            <strong>GGBoard</strong> is an all-in-one platform for hosting competitive esports events.
+            Organizers spin up tournaments, players sign up and register teams in seconds,
+            teammates join with a code, and fans follow live, auto-ranked scoreboards — all in one place.
+          </p>
+          <div className="hero-cta">
+            <Link to="/auth?mode=signup" id="hero-get-started" className="btn btn-primary">Get Started →</Link>
+            <Link to="/scoreboard" className="btn btn-secondary">View Live Scoreboard</Link>
           </div>
-        </div>
+          <p className="hero-signin">
+            Already have an account? <Link to="/auth?mode=signin">Sign in →</Link>
+          </p>
+        </header>
 
-        <div className="landing-actions">
-          {/* Admin Login */}
-          <button
-            id="btn-admin-login"
-            className="action-card"
-            onClick={() => navigate('/admin/login')}
-          >
-            <div className="action-icon">🛡️</div>
-            <div className="action-info">
-              <h3>Admin Login / Sign Up</h3>
-              <p>Tournament management & control</p>
-            </div>
-            <div className="action-arrow">→</div>
-          </button>
-
-          {/* Player / Team */}
-          <div className="action-card-group">
-            <button
-              id="btn-player-team"
-              className="action-card"
-              onClick={() => setShowPlayerMenu(!showPlayerMenu)}
-            >
-              <div className="action-icon">🎮</div>
-              <div className="action-info">
-                <h3>Player / Team</h3>
-                <p>Join, create, or manage your team</p>
-              </div>
-              <div className={`action-arrow ${showPlayerMenu ? 'rotated' : ''}`}>→</div>
-            </button>
-
-            {showPlayerMenu && (
-              <div className="sub-menu">
-                <button id="btn-leader-login" className="sub-menu-item" onClick={() => navigate('/leader/login')}>
-                  <span className="sub-icon">👑</span> Team Leader Login / Sign Up
-                </button>
-                <button id="btn-join-team" className="sub-menu-item" onClick={() => navigate('/join-team')}>
-                  <span className="sub-icon">🤝</span> Join a Team
-                </button>
-              </div>
-            )}
+        {/* ─── Features ─── */}
+        <section className="section" id="features">
+          <h2 className="section-title">Everything you need to run an event</h2>
+          <p className="section-subtitle">From the first bracket to the final podium.</p>
+          <div className="feature-grid">
+            {FEATURES.map((f) => (
+              <article key={f.title} className="feature-card">
+                <div className="feature-icon">{f.icon}</div>
+                <h3>{f.title}</h3>
+                <p>{f.desc}</p>
+              </article>
+            ))}
           </div>
+        </section>
 
-          {/* Scoreboard */}
-          <button
-            id="btn-scoreboard"
-            className="action-card"
-            onClick={() => navigate('/scoreboard')}
-          >
-            <div className="action-icon">🏆</div>
-            <div className="action-info">
-              <h3>Scoreboard</h3>
-              <p>View live tournament standings</p>
-            </div>
-            <div className="action-arrow">→</div>
-          </button>
-        </div>
+        {/* ─── How it works ─── */}
+        <section className="section">
+          <h2 className="section-title">How it works</h2>
+          <p className="section-subtitle">Four simple steps from setup to live standings.</p>
+          <div className="steps-grid">
+            {STEPS.map((s) => (
+              <article key={s.n} className="step-card">
+                <span className="step-num">{s.n}</span>
+                <h3>{s.title}</h3>
+                <p>{s.desc}</p>
+              </article>
+            ))}
+          </div>
+        </section>
 
+        {/* ─── Final CTA ─── */}
+        <section className="cta-band">
+          <h2>Ready to run your tournament?</h2>
+          <p>Register a team to get started, or explore a live scoreboard first.</p>
+          <div className="hero-cta">
+            <Link to="/auth?mode=signup" className="btn btn-primary">Get Started</Link>
+            <Link to="/scoreboard" className="btn btn-secondary">View Scoreboard</Link>
+          </div>
+        </section>
+
+        {/* ─── Footer ─── */}
         <footer className="landing-footer">
-          <p>© 2026 ggBoard — Built for competitive gaming</p>
+          <div className="footer-brand">
+            <span className="logo-gg">GG</span><span className="logo-board">BOARD</span>
+          </div>
+          <div className="footer-links">
+            <Link to="/auth?mode=signin">Sign In</Link>
+            <Link to="/auth?mode=signup">Get Started</Link>
+            <Link to="/scoreboard">Scoreboard</Link>
+          </div>
+          <p className="footer-copy">© 2026 GGBoard — Built for competitive gaming</p>
         </footer>
       </div>
     </div>

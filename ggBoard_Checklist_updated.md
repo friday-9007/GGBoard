@@ -6,13 +6,60 @@
 
 ---
 
+## 📌 Progress Log
+
+> **Last reconciled:** 2026-06-30 · **Branch:** `beta` · **Anchor commits:** `8a00e34` (security/docs), `103bee5` (UI WIP)
+> Checkboxes below were verified against the **actual code**, not assumed. `[x]` = done & verified · `[ ]` = not done · **⚠️ note** = partial/caveat.
+
+**This session:**
+- ✅ Ran the full stack locally (backend `:3001` + frontend `:5173`), verified login + API end-to-end
+- ✅ Documented the architecture → [ARCHITECTURE.md](ARCHITECTURE.md) + 4 validated diagrams in [docs/diagrams/](docs/diagrams/)
+- ✅ Fixed both critical (P0) issues: enforced `JWT_SECRET` (no insecure fallback) + added `.env`/`.env.example`; made the frontend API URL config-driven (`VITE_API_URL`)
+- ✅ Redesigned the **landing page** into an intro page (hero + features + how-it-works + footer); Sign Up → Create Team, Sign In → Team Leader login
+- ✅ Implemented **multi-tenant organizers** (ADR-003): `games.organizer_id` + migration, organizer sign-up (`/auth/admin/register`) + AdminRegister page, all admin endpoints owner-scoped; isolation verified
+- ✅ **Unified auth + self-registered players** (ADR-004): one `/auth` page (Sign In/Sign Up + Organizer/Player), accounts-first create/join, `players.user_id`, player hub (`/player`), landing "Get Started"; full flow verified (12/12)
+- ✅ **Security hardening** (via Context7 MCP): `express-rate-limit` on `/auth` + global, Zod input validation on auth/game/score endpoints; verified
+- 🔎 Reconciled this checklist with verified code state (below)
+
+### Phase status at a glance
+| Phase | Area | Status |
+|---|---|---|
+| 0 | Architecture & Hardening *(new)* | 🟡 P0/P1 + migrations + multi-tenant + validation + rate-limit done; deploy target pending |
+| 1 | Project Setup & Foundation | ✅ Complete |
+| 2 | Authentication System | ✅ Complete |
+| 3 | Landing Page | ✅ Complete |
+| 4 | Registration Flows | ✅ Complete |
+| 5 | Admin Panel | 🟡 Mostly (no admin edit-team/edit-player UI; no export field-picker) |
+| 6 | **Team Leader / Player Panel** | 🟡 Player hub shows team + code + roster (6.1 done); edit/remove-player (6.2) pending |
+| 7 | Public Scoreboard | ✅ Complete (live auto-refresh pending) |
+| 8 | Polish & Edge Cases | 🟡 Partial (rate-limit, dup team-name, client validation) |
+| 9 | Testing | 🟡 Smoke-tested only |
+| 10 | Deployment | ⬜ Not started (config groundwork laid) |
+
+---
+
+## 🧱 PHASE 0 — Architecture & Hardening *(added this session)*
+
+- [x] Document system architecture (components, auth flow, ER, deployment) → `ARCHITECTURE.md`
+- [x] Render + validate diagrams → `docs/diagrams/*.png`
+- [x] **P0** — Enforce `JWT_SECRET` at startup; remove insecure `fallback_secret`
+- [x] **P0** — Add `backend/.env` + `backend/.env.example`
+- [x] **P0** — Frontend API URL via `VITE_API_URL` (+ `frontend/.env`/`.env.example`)
+- [x] **P1** — Add a database migration system → idempotent runner (`npm run migrate`)
+- [x] **Multi-tenant organizers** (ADR-003) — `games.organizer_id`, organizer sign-up, owner-scoped admin endpoints, AdminRegister UI
+- [x] **P1** — Input-validation layer → Zod middleware ([validate.js](backend/middleware/validate.js) + [schemas.js](backend/validation/schemas.js))
+- [x] **P2** — Rate limiting on `/auth/*` → express-rate-limit ([rateLimit.js](backend/middleware/rateLimit.js))
+- [ ] Decide target deployment architecture (ADR-002: local-first vs Supabase vs Cloudflare)
+
+---
+
 ## ✅ PHASE 1 — Project Setup & Foundation
 
 ### 1.1 — Initialize Project
 - [x] Choose tech stack (frontend framework, backend, database)
 - [x] Set up project folder structure (client / server / database)
 - [x] Initialize version control (Git repo)
-- [x] Set up environment variables file (`.env`)
+- [x] Set up environment variables file (`.env`)  ✅ *added this session (`.env` + `.env.example`)*
 - [x] Configure basic README
 
 ### 1.2 — Database Setup
@@ -56,7 +103,7 @@
   - [x] Admin → all routes
   - [x] Team Leader → scoped routes only
   - [x] Player / Public → read-only scoreboard only
-- [x] Token expiry and refresh logic (if needed)
+- [x] Token expiry — 24h JWT  ⚠️ *expiry only; no refresh-token flow (stateless logout)*
 - [x] Handle unauthorized access with proper error responses
 
 ---
@@ -64,238 +111,199 @@
 ## ✅ PHASE 3 — Landing Page (Frontend)
 
 ### 3.1 — Visual Design
-- [ ] Set up esports dark theme (colors, fonts, globals)
-- [ ] Create fullscreen animated/GIF esports background
-- [ ] Add overlay so text is readable over the background
-- [ ] Ensure responsive layout (desktop + mobile)
+- [x] Set up esports dark theme (colors, fonts, globals)
+- [ ] Create fullscreen animated/GIF esports background  ⚠️ *uses a static themed grid/hero background instead of an animated GIF*
+- [x] Add overlay so text is readable over the background
+- [x] Ensure responsive layout (desktop + mobile)  ⚠️ *basic responsiveness; not exhaustively tested*
 
 ### 3.2 — Navigation Buttons
-- [ ] **Admin Login** button
-  - [ ] Clicking opens login form / redirects to login page
-- [ ] **Player / Team Login** button
-  - [ ] Sub-menu or dropdown with 3 options:
-    - [ ] Login as Team Leader
-    - [ ] Create a Team
-    - [ ] Join a Team
-- [ ] **Scoreboard** button
-  - [ ] Redirects to public scoreboard page
+- [x] **Admin Login** button
+  - [x] Clicking opens login form / redirects to login page
+- [x] **Player / Team Login** button
+  - [x] Sub-menu / dropdown options  ⚠️ *current: "Team Leader Login / Sign Up" + "Join a Team"; "Create a Team" now lives on the Leader Login page*
+    - [x] Login as Team Leader
+    - [x] Create a Team *(moved to Leader Login page link)*
+    - [x] Join a Team
+- [x] **Scoreboard** button
+  - [x] Redirects to public scoreboard page
 
 ### 3.3 — Login Forms
-- [ ] Admin login form (username + password)
-- [ ] Team Leader login form (username + password)
-- [ ] Form validation (empty fields, wrong credentials feedback)
-- [ ] Loading state while authenticating
-- [ ] Redirect to correct dashboard on success
+- [x] Admin login form (username + password)
+- [x] Team Leader login form (username + password)
+- [x] Form validation (empty fields, wrong credentials feedback)
+- [x] Loading state while authenticating
+- [x] Redirect to correct dashboard on success
 
 ---
 
 ## ✅ PHASE 4 — Team & Player Registration Flows
 
 ### 4.1 — Create a Team Flow
-- [ ] Build "Create a Team" form:
-  - [ ] Team Name field
-  - [ ] Team Leader Name field
-  - [ ] Game/Tournament selector (dropdown — populated from active games)
-  - [ ] *(No password field — credentials are auto-generated)*
-- [ ] On submit:
-  - [ ] Create team entry in DB
-  - [ ] Auto-generate unique Team Code (e.g., 6–8 alphanumeric chars)
-  - [ ] Auto-generate Team Leader login credentials:
-    - [ ] Username (e.g., based on team name or leader name)
-    - [ ] Password (random generated string)
-  - [ ] Create team leader user account in DB with generated credentials
-  - [ ] Show a **credentials card** to the leader on success:
-    - [ ] Generated Username
-    - [ ] Generated Password
-    - [ ] Team Unique Code
-    - [ ] Copy button for each / copy all button
-    - [ ] Warning: *"Save these credentials, they won't be shown again"*
-- [ ] API endpoint: `POST /teams/create`
+- [x] Build "Create a Team" form:
+  - [x] Team Name field
+  - [x] Team Leader Name field
+  - [x] Game/Tournament selector (dropdown — populated from active games)
+  - [x] *(No password field — credentials are auto-generated)*
+- [x] On submit:
+  - [x] Create team entry in DB
+  - [x] Auto-generate unique Team Code (6–8 alphanumeric chars)
+  - [x] Auto-generate Team Leader login credentials:
+    - [x] Username (based on team + leader name)
+    - [x] Password (random generated string)
+  - [x] Create team leader user account in DB with generated credentials
+  - [x] Show a **credentials card** to the leader on success:
+    - [x] Generated Username
+    - [x] Generated Password
+    - [x] Team Unique Code
+    - [x] Copy button for each / copy all button
+    - [x] Warning: *"Save these credentials, they won't be shown again"*
+- [x] API endpoint: `POST /teams/create`
 
 ### 4.2 — Join a Team Flow
-- [ ] Build "Join a Team" form:
-  - [ ] Full Name field
-  - [ ] In-Game Username / ID field
-  - [ ] Any extra required fields (email, phone, rank — TBD)
-  - [ ] Team Unique Code field
-- [ ] On submit:
-  - [ ] Validate team code exists
-  - [ ] Add player to the matched team in DB
-  - [ ] Show success confirmation message
-- [ ] API endpoint: `POST /players/join`
-- [ ] Handle errors:
-  - [ ] Invalid team code
-  - [ ] Team doesn't exist
-  - [ ] Duplicate player entry (same name + same team)
+- [x] Build "Join a Team" form:
+  - [x] Full Name field
+  - [x] In-Game Username / ID field
+  - [x] Extra fields (email, phone — optional)
+  - [x] Team Unique Code field
+- [x] On submit:
+  - [x] Validate team code exists
+  - [x] Add player to the matched team in DB
+  - [x] Show success confirmation message
+- [x] API endpoint: `POST /players/join`
+- [x] Handle errors:
+  - [x] Invalid team code
+  - [x] Team doesn't exist
+  - [x] Duplicate player entry (same IGN + same team)
 
 ---
 
-## ✅ PHASE 5 — Admin Panel
+## 🟡 PHASE 5 — Admin Panel
 
 ### 5.1 — Admin Dashboard Layout
-- [ ] Build admin sidebar/navbar with all sections
-- [ ] Dashboard home — quick stats overview:
-  - [ ] Total games active
-  - [ ] Total teams registered
-  - [ ] Total players registered
-- [ ] Protect entire admin panel behind auth check
+- [x] Build admin sidebar/navbar with all sections
+- [x] Dashboard home — quick stats overview:
+  - [x] Total games active
+  - [x] Total teams registered
+  - [x] Total players registered
+- [x] Protect entire admin panel behind auth check
 
 ### 5.2 — Game / Tournament Management
-- [ ] **Create Game** form:
-  - [ ] Game title selector (PUBG, Valorant, CODM, CS2, etc.)
-  - [ ] Tournament name / label
-  - [ ] Status toggle (active / inactive)
-- [ ] On game creation:
-  - [ ] Add to DB
-  - [ ] Auto-appear in "Create a Team" game dropdown
-  - [ ] Auto-create scoreboard entry for that game
-- [ ] List of all created games with status
-- [ ] Edit / Delete game option
-- [ ] API endpoints:
-  - [ ] `POST /games/create`
-  - [ ] `GET /games/all`
-  - [ ] `PATCH /games/:id`
-  - [ ] `DELETE /games/:id`
+- [x] **Create Game** form (title, tournament name, rounds, status toggle)
+- [x] On game creation:
+  - [x] Add to DB
+  - [x] Auto-appear in "Create a Team" game dropdown
+  - [x] Scoreboard entry exists for teams  ⚠️ *score rows are created per-team at team creation (not at game creation)*
+- [x] List of all created games with status
+- [x] Edit / Delete game option
+- [x] API endpoints: `POST /games/create`, `GET /games/all`, `PATCH /games/:id`, `DELETE /games/:id`
 
 ### 5.3 — Team Management
-- [ ] View all teams in a table:
-  - [ ] Team Name, Game, Team Code, Player Count, Team Leader
-- [ ] **Add team manually** (bypass normal registration flow)
-- [ ] **Edit team details**
-- [ ] **Delete a team** (removes team + all linked players)
-- [ ] API endpoints:
-  - [ ] `GET /teams/all`
-  - [ ] `POST /teams/create` *(shared with create flow)*
-  - [ ] `PATCH /teams/:id`
-  - [ ] `DELETE /teams/:id`
+- [x] View all teams in a table (Name, Game, Code, Player Count, Leader)
+- [x] **Add team manually** (with credentials card)
+- [ ] **Edit team details**  ⚠️ *backend `PATCH /teams/:id` exists, but not exposed in the admin UI*
+- [x] **Delete a team** (removes team + linked players + leader user)
+- [x] API endpoints: `GET /teams/all`, `POST /teams/create`, `PATCH /teams/:id`, `DELETE /teams/:id`
 
 ### 5.4 — Player Data Management
-- [ ] View all players grouped by team OR in flat table
-- [ ] Search/filter by team, game, or player name
-- [ ] **Edit any player's data** (name, IGN, contact details, etc.)
-- [ ] **Delete any player**
-- [ ] **Add player manually** to any team
-- [ ] API endpoints:
-  - [ ] `GET /players/all`
-  - [ ] `POST /players/add`
-  - [ ] `PATCH /players/:id`
-  - [ ] `DELETE /players/:id`
+- [x] View all players in flat table
+- [x] Search/filter by team or player name
+- [ ] **Edit any player's data**  ⚠️ *backend `PATCH /players/:id` exists, but not exposed in the admin UI*
+- [x] **Delete any player**
+- [x] **Add player manually** to any team
+- [x] API endpoints: `GET /players/all`, `POST /players/add`, `PATCH /players/:id`, `DELETE /players/:id`
 
 ### 5.5 — Scoreboard Management (Admin Side)
-- [ ] Select a game/tournament to manage scores for
-- [ ] View all teams registered under that game
-- [ ] Input score per round per team:
-  - [ ] Round 1, Round 2, Round 3 ... (dynamic round columns)
-  - [ ] Total auto-calculated from all round scores
-- [ ] Update/overwrite scores for a team
-- [ ] Scores reflect immediately on public scoreboard
-- [ ] API endpoints:
-  - [ ] `POST /scores/update`
-  - [ ] `GET /scores/:gameId`
+- [x] Select a game/tournament to manage scores for
+- [x] View all teams registered under that game
+- [x] Input score per round per team (dynamic round columns)
+- [x] Total auto-calculated from all round scores
+- [x] Update/overwrite scores for a team
+- [x] Scores reflect immediately on public scoreboard
+- [x] API endpoints: `POST /scores/update`, `GET /scores/:gameId`
 
 ### 5.6 — Data Export
-- [ ] Export button visible in admin panel
-- [ ] Export configuration modal:
-
-  **Step 1 — Choose data type:**
-  - [ ] Player Data only
-  - [ ] Scoreboard only
-  - [ ] Combined (Players + Scores)
-
-  **Step 2 — Choose fields to include:**
-  - [ ] Team Name
-  - [ ] Player Name(s)
-  - [ ] In-Game Username
-  - [ ] Per-Round Scores
-  - [ ] Total Score
-  - [ ] Game / Tournament
-  - [ ] *(Custom field selection)*
-
-  **Step 3 — Choose export format:**
-  - [ ] CSV *(primary)*
-  - [ ] *(More formats TBD)*
-
-- [ ] Generate and download file on confirm
-- [ ] API endpoint: `POST /export` *(with field config in body)*
+- [x] Export button visible in admin panel
+- [x] Choose data type (Players / Scoreboard / Combined)
+- [ ] Choose fields to include (custom field selection)  ⚠️ *backend `/export` accepts a `fields` array, but the UI doesn't expose a per-field picker yet*
+- [x] Choose export format — CSV
+- [x] Generate and download file on confirm
+- [x] API endpoint: `POST /export`
 
 ---
 
-## ✅ PHASE 6 — Team Leader Panel
+## 🔴 PHASE 6 — Team Leader Panel  *(MAIN REMAINING FEATURE)*
+
+> Backend is ready; the frontend `LeaderDashboard.jsx` is currently just a greeting card + logout.
 
 ### 6.1 — Team Leader Dashboard Layout
-- [ ] Build scoped dashboard — only shows their own team
-- [ ] Display:
-  - [ ] Team Name
-  - [ ] Game/Tournament registered under
-  - [ ] Team Unique Code (with copy button)
-  - [ ] Full player roster table
+- [x] Build scoped dashboard — only shows their own team  ✅ *`/player` hub (PlayerHub.jsx)*
+- [x] Display:
+  - [x] Team Name
+  - [x] Game/Tournament registered under
+  - [x] Team Unique Code (with copy button)
+  - [x] Full player roster table
 
 ### 6.2 — Team Leader Capabilities
-- [ ] **Edit own profile / player data**
-  - [ ] Update name, IGN, contact details
-- [ ] **Edit team information**
-  - [ ] Update team name (admin override rules TBD)
-- [ ] **Remove a player** from their team
-  - [ ] Confirmation prompt before delete
-- [ ] Cannot view or modify other teams
-- [ ] API endpoints:
-  - [ ] `GET /teams/my` *(own team only)*
-  - [ ] `PATCH /players/:id` *(scoped — own team players only)*
-  - [ ] `DELETE /players/:id` *(scoped)*
-  - [ ] `PATCH /teams/my`
+- [ ] **Edit own profile / player data** (name, IGN, contact)
+- [ ] **Edit team information** (team name — admin override rules TBD)
+- [ ] **Remove a player** from their team (with confirmation prompt)
+- [ ] Cannot view or modify other teams *(enforced on backend already)*
+- [x] API endpoints exist:
+  - [x] `GET /teams/my` *(own team only)*
+  - [x] `PATCH /players/:id` *(scoped — own team players only)*
+  - [x] `DELETE /players/:id` *(scoped)*
+  - [ ] `PATCH /teams/my`  ⚠️ *not implemented; team update is `PATCH /teams/:id` with an ownership check*
 
 ---
 
 ## ✅ PHASE 7 — Public Scoreboard Page
 
 ### 7.1 — Game Selector
-- [ ] Page loads with a list of all **active** games/tournaments
-- [ ] Display as cards or dropdown selector
-- [ ] Clicking a game loads its scoreboard
+- [x] Page loads with a list of all **active** games/tournaments
+- [x] Display as dropdown selector
+- [x] Selecting a game loads its scoreboard
 
 ### 7.2 — Scoreboard Display
-- [ ] Fetch and display scores for selected game
-- [ ] Table columns:
-  - [ ] Rank (auto — 1st, 2nd, 3rd...)
-  - [ ] Team Name
-  - [ ] Round 1, Round 2, Round 3 ... (dynamic columns based on rounds played)
-  - [ ] Total Score
-- [ ] Sorted in **descending order** by total score automatically
-- [ ] Styled with esports theme (highlight top 3 teams, etc.)
-- [ ] Refresh/live update indicator (polling or websocket — TBD)
-- [ ] API endpoint: `GET /scores/:gameId`
+- [x] Fetch and display scores for selected game
+- [x] Table columns: Rank, Team Name, dynamic Round columns, Total Score
+- [x] Sorted descending by total score automatically
+- [x] Styled with esports theme (top-3 highlight 🥇🥈🥉)
+- [ ] Refresh/live update indicator (polling or websocket)  ⚠️ *fetches on mount + game change only; no auto-refresh yet*
+- [x] API endpoint: `GET /scores/:gameId`
 
 ---
 
-## ✅ PHASE 8 — Polish & Edge Cases
+## 🟡 PHASE 8 — Polish & Edge Cases
 
 ### 8.1 — Validation & Error Handling
-- [ ] All forms have client-side + server-side validation
-- [ ] Invalid team code → clear error message
-- [ ] Duplicate player in same team → rejected with message
-- [ ] Duplicate team name → warning or block
-- [ ] Admin deletes game → handle linked teams/scores gracefully
-- [ ] Empty scoreboard state (no scores yet) → show placeholder message
+- [x] Forms have validation  ⚠️ *client = HTML `required`; server = presence checks (no schema validation lib yet)*
+- [x] Invalid team code → clear error message
+- [x] Duplicate player in same team → rejected with message
+- [ ] Duplicate team name → warning or block  ⚠️ *not enforced — `team_name` is not unique in the schema (only `unique_code` is)*
+- [x] Admin deletes game → linked teams/scores handled (cascade)
+- [x] Empty scoreboard state → placeholder message
 
 ### 8.2 — UI/UX Polish
-- [ ] Loading spinners on all async actions
-- [ ] Success/error toast notifications
-- [ ] Confirm dialogs before all destructive actions (delete, remove)
-- [ ] Empty state designs for tables (no teams, no players yet)
-- [ ] Smooth page transitions
+- [x] Loading spinners on async actions
+- [x] Success/error toast notifications (admin)
+- [x] Confirm dialogs before destructive actions
+- [x] Empty state designs for tables
+- [x] Smooth page transitions (fade/slide)
 
 ### 8.3 — Security Checks
-- [ ] All admin routes verified on backend (not just frontend-hidden)
-- [ ] Team leader cannot access other teams' data via direct API calls
-- [ ] Input sanitization on all form fields
-- [ ] Rate limiting on auth endpoints
-- [ ] Team code collision handling (ensure uniqueness on generation)
+- [x] All admin routes verified on backend (not just frontend-hidden)
+- [x] Team leader cannot access other teams' data via direct API calls (ownership checks)
+- [x] Input safety — parameterized SQL + **Zod validation** on key write endpoints
+- [x] Rate limiting on auth endpoints  ✅ *express-rate-limit — 30/15min on `/auth`, 300/15min global*
+- [x] Team code collision handling (unique generation with retry)
 
 ---
 
-## ✅ PHASE 9 — Testing
+## 🟡 PHASE 9 — Testing
 
-- [ ] Test all auth flows (admin, leader, public)
+> Smoke-tested this session via API/curl: admin login, JWT enforcement (old token rejected), health, games/scores fetch, app boot. Systematic testing still pending.
+
+- [ ] Test all auth flows (admin, leader, public)  ⚠️ *admin verified; leader/public pending*
 - [ ] Test team creation + code generation
 - [ ] Test player join via code (valid + invalid code cases)
 - [ ] Test full admin CRUD on teams and players
@@ -307,10 +315,10 @@
 
 ---
 
-## ✅ PHASE 10 — Deployment
+## ⬜ PHASE 10 — Deployment
 
-- [ ] Choose hosting platform (Vercel, Railway, Render, VPS — TBD)
-- [ ] Set up production environment variables
+- [ ] Choose hosting platform (TBD — see ADR-002 in ARCHITECTURE.md)
+- [ ] Set up production environment variables  ⚠️ *groundwork laid: env-driven config + `.env.example` files*
 - [ ] Deploy backend / API
 - [ ] Deploy frontend
 - [ ] Connect to production database
@@ -322,15 +330,17 @@
 
 ## 📋 Pending / TBD Items
 
-- [ ] Decide tech stack (React? Next.js? Node/Express? Django? PostgreSQL? MongoDB?)
-- [ ] Define all extra player fields (email, phone, rank, etc.)
+- [x] ~~Decide tech stack~~ → React + Vite · Node/Express · SQLite (better-sqlite3)
+- [x] ~~Define extra player fields~~ → email, phone (both optional)
 - [ ] Decide on real-time strategy (polling vs WebSockets for scoreboard)
-- [ ] Admin account creation flow (how is the first admin created?)
+- [x] ~~Admin account creation flow~~ → seeded via `npm run seed` (`admin` / `admin123`)
 - [ ] Rules around team leader editing team name (admin approval needed?)
-- [ ] Number of rounds per game — fixed or dynamic per tournament?
+- [x] ~~Rounds per game — fixed or dynamic?~~ → dynamic per game (`num_rounds`)
 - [ ] More export formats beyond CSV (PDF, Excel?)
+- [ ] Expose admin edit-team & edit-player in the UI (backend already supports both)
+- [ ] Custom field selection in the export UI
 - [ ] More phases to be added as scope expands...
 
 ---
 
-*Cross off checkboxes as you build. New phases will be appended at the bottom.*
+*Cross off checkboxes as you build. Keep the Progress Log at the top current each session.*

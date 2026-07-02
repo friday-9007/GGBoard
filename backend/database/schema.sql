@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS games (
     tournament_name TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'inactive')),
     num_rounds INTEGER NOT NULL DEFAULT 3,
+    organizer_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -51,6 +52,7 @@ CREATE TABLE IF NOT EXISTS players (
     email TEXT,
     phone TEXT,
     team_id INTEGER NOT NULL,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
 );
@@ -79,3 +81,4 @@ CREATE INDEX IF NOT EXISTS idx_players_team_id ON players(team_id);
 CREATE INDEX IF NOT EXISTS idx_scores_game_id ON scores(game_id);
 CREATE INDEX IF NOT EXISTS idx_scores_team_game ON scores(team_id, game_id);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+CREATE INDEX IF NOT EXISTS idx_games_organizer ON games(organizer_id);

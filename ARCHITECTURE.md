@@ -107,12 +107,13 @@ sequenceDiagram
 ### Authorization model
 - **Token claims:** `{ id, username, role, teamId }`, signed with `JWT_SECRET`, 24h expiry ([`middleware/auth.js`](backend/middleware/auth.js)).
 - **Role guards:** `requireAdmin`, `requireTeamLeader`, `requireAdminOrLeader` all wrap `verifyToken`.
+- **Multi-tenant (organizers):** the `admin` role is per-organizer — admins self-register via `POST /auth/admin/register`, and every admin management query is filtered/guarded by `games.organizer_id = req.user.id`, isolating organizers from one another. The seeded `admin` is simply organizer #1.
 - **Ownership checks (defense in depth):** for shared routes, handlers additionally compare `req.user.teamId` to the target resource — e.g. a team leader may only edit/delete players in their own team ([`players.js:156`](backend/routes/players.js#L156), [`players.js:193`](backend/routes/players.js#L193)) and only edit their own team ([`teams.js:202`](backend/routes/teams.js#L202)).
 - **Logout is stateless** — the server simply 200s; the client discards the token. There is no revocation list, so a leaked token is valid until expiry.
 - **Client guard:** `<ProtectedRoute requiredRole>` in [`App.jsx`](frontend/src/App.jsx) gates dashboard routes; auth state is restored from `localStorage` on mount **without re-validating the token** against the server.
 
-### Distinctive flow — team creation auto-generates a leader account
-`POST /teams/create` is **public** and, in a single transaction ([`teams.js:86`](backend/routes/teams.js#L86)), it: creates a `team_leader` user with a generated username + random password, creates the team with a unique join code, links the two, and seeds an empty score row. The generated credentials are returned **once** in the response body.
+### Team creation & joining (accounts-first)
+`POST /teams/create` and `POST /players/join` are **protected** — a player must be signed in (unified `POST /auth/register` / `POST /auth/login`). A **player** who creates a team becomes its leader (their account is linked, one team per player); a player who joins with a code is linked to that team's roster. When an **admin** calls `POST /teams/create` (manual add), it still auto-generates a `team_leader` account and returns the generated credentials **once**. Creating/joining returns a **refreshed JWT** so the new `teamId` is reflected immediately.
 
 ---
 
@@ -120,9 +121,11 @@ sequenceDiagram
 
 ```mermaid
 erDiagram
+    USERS ||--o{ GAMES : "organizes (organizer_id)"
     GAMES ||--o{ TEAMS : "hosts"
     GAMES ||--o{ SCORES : "scored in"
     USERS ||--o| TEAMS : "leads (leader_id)"
+    USERS ||--o| PLAYERS : "is roster member (user_id)"
     TEAMS ||--o{ PLAYERS : "rosters"
     TEAMS ||--o{ SCORES : "earns"
 
@@ -132,6 +135,7 @@ erDiagram
         TEXT tournament_name "NOT NULL"
         TEXT status "active|inactive CHECK"
         INTEGER num_rounds "default 3"
+        INTEGER organizer_id FK "owner - CASCADE"
         DATETIME created_at "default now"
     }
     USERS {
@@ -158,6 +162,7 @@ erDiagram
         TEXT email "nullable"
         TEXT phone "nullable"
         INTEGER team_id FK "NOT NULL CASCADE"
+        INTEGER user_id FK "account link, SET NULL"
         DATETIME created_at "default now"
     }
     SCORES {
@@ -188,7 +193,10 @@ Base URL `http://localhost:3001` (hardcoded in [`frontend/src/utils/api.js`](fro
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
 | GET | `/health` | Public | Liveness check |
-| POST | `/auth/admin/login` | Public | Admin login → JWT |
+| POST | `/auth/register` | Public | Unified sign-up — organizer or player → JWT |
+| POST | `/auth/login` | Public | Unified login — any role → JWT |
+| POST | `/auth/admin/login` | Public | Admin/organizer login → JWT |
+| POST | `/auth/admin/register` | Public | Organizer self sign-up → JWT (multi-tenant) |
 | POST | `/auth/leader/login` | Public | Team-leader login → JWT |
 | POST | `/auth/logout` | Public | Stateless (client discards token) |
 | POST | `/games/create` | Admin | Create game/tournament |
@@ -196,12 +204,12 @@ Base URL `http://localhost:3001` (hardcoded in [`frontend/src/utils/api.js`](fro
 | GET | `/games/active` | Public | Active games (registration dropdowns) |
 | PATCH | `/games/:id` | Admin | Update game (COALESCE partial) |
 | DELETE | `/games/:id` | Admin | Delete game (cascades) |
-| POST | `/teams/create` | **Public** | Create team + auto-gen leader account + seed score (txn); returns generated creds |
+| POST | `/teams/create` | Player/Admin | Player self-creates a team (becomes leader); admin manual-add auto-generates a leader account |
 | GET | `/teams/all` | Admin | All teams + leader + player counts |
 | GET | `/teams/my` | Leader | Own team + roster |
 | PATCH | `/teams/:id` | Admin/Leader | Update team (leader: own only) |
 | DELETE | `/teams/:id` | Admin | Delete team + leader user |
-| POST | `/players/join` | Public | Join a team by `unique_code` (dup check) |
+| POST | `/players/join` | Player | Signed-in player joins a team by `unique_code` (links account) |
 | POST | `/players/add` | Admin | Add player to any team |
 | GET | `/players/all` | Admin | All players (filters: `team_id`, `game_id`, `search`) |
 | PATCH | `/players/:id` | Admin/Leader | Edit player (leader: own team only) |
@@ -209,6 +217,8 @@ Base URL `http://localhost:3001` (hardcoded in [`frontend/src/utils/api.js`](fro
 | POST | `/scores/update` | Admin | Upsert `round_scores[]`, recompute total |
 | GET | `/scores/:gameId` | Public | Ranked scoreboard for a game |
 | POST | `/export` | Admin | CSV export (`players` \| `scores` \| `combined`), optional `game_id`, field selection |
+
+> **Multi-tenant scoping (organizers):** every **Admin** management endpoint is owner-scoped via `games.organizer_id` — an organizer can only read/modify their **own** games, teams, players, scores, and exports (cross-org access returns `403`). **Public** read endpoints (`/games/active`, `/scores/:gameId`) stay global so visitors can browse tournaments and scoreboards across all organizers.
 
 > **Doc/code drift:** the header comment in [`teams.js`](backend/routes/teams.js#L7) advertises a `PATCH /teams/my`, but no such route is registered — team updates go through `PATCH /teams/:id` with an ownership check. Flagged in the risk register below.
 
@@ -228,18 +238,18 @@ Base URL `http://localhost:3001` (hardcoded in [`frontend/src/utils/api.js`](fro
 
 | Sev | Issue | Location | Impact |
 |---|---|---|---|
-| 🔴 P0 | `JWT_SECRET` falls back to the public string `'fallback_secret'`; no `.env` exists and no startup assertion | [`auth.js:9`](backend/middleware/auth.js#L9) | Anyone can forge a valid admin token → full auth bypass |
-| 🔴 P0 | Frontend API base URL hardcoded to `localhost:3001` | [`api.js:8`](frontend/src/utils/api.js#L8) | App can't be deployed anywhere but local without editing source |
-| 🟠 P1 | No migration system — schema applied once via `CREATE TABLE IF NOT EXISTS` | [`seed.js`](backend/database/seed.js) | Schema changes can't be applied safely to an existing DB |
-| 🟠 P1 | No validation layer — ad-hoc `if (!field)` checks, inconsistent | all routers | Weak/uneven input enforcement; no type coercion |
-| 🟡 P2 | No rate limiting on `/auth/*` | [`auth.js`](backend/routes/auth.js) | Login brute-force exposure |
+| ✅ ~~P0~~ | **Resolved** — `JWT_SECRET` enforced at startup (no fallback); `.env`/`.env.example` added | [`auth.js`](backend/middleware/auth.js) | Forged-token bypass closed |
+| ✅ ~~P0~~ | **Resolved** — frontend API base URL now via `VITE_API_URL` | [`api.js:8`](frontend/src/utils/api.js#L8) | Deployable to any backend |
+| ✅ ~~P1~~ | **Resolved** — idempotent migration runner added (`npm run migrate`) | [`migrate.js`](backend/database/migrate.js) | Schema changes apply safely to an existing DB |
+| ✅ ~~P1~~ | **Resolved** — Zod validation middleware on auth register/login + game & score create | [`validate.js`](backend/middleware/validate.js) | Consistent, typed input enforcement |
+| ✅ ~~P2~~ | **Resolved** — `express-rate-limit` (global 300/15m + auth 30/15m) | [`rateLimit.js`](backend/middleware/rateLimit.js) | Brute-force + flood protection |
 | 🟡 P2 | No data-access layer — raw SQL inline in handlers | all routers | Hurts testability; makes any DB swap painful |
 | 🟡 P2 | `better-sqlite3` sync + single local file | [`config/db.js`](backend/config/db.js) | Single-node only; can't run serverless/edge |
 | 🟡 P2 | Token restored from `localStorage` without server re-validation | [`AuthContext.jsx`](frontend/src/context/AuthContext.jsx) | Expired token shows "authenticated" until first API 401 |
 | 🟡 P2 | `users.team_id` has no FK constraint | [`schema.sql:26`](backend/database/schema.sql#L26) | User↔team integrity depends entirely on app code |
 | ⚪ P3 | Doc/code drift: `PATCH /teams/my` documented but not implemented | [`teams.js:7`](backend/routes/teams.js#L7) | Misleading; confuses API consumers |
 
-> The **P0/P1** items are prerequisites for *any* deployment target and should be fixed regardless of the path chosen in §8.
+> The original **P0**s and the migration **P1** are now resolved (above). The remaining P1 (validation) and P2 items are not blockers for current features.
 
 ---
 
@@ -298,6 +308,8 @@ flowchart LR
 
 - **ADR-001 — Document the architecture before changing it.** *Accepted.* Before committing to a deployment/data target, capture the as-built system, data model, API surface, and risks (this document). Rationale: avoid premature migration; make the trade-offs in §8 explicit first.
 - **ADR-002 — Target architecture.** *Open.* Choose between Options A/B/C in §8. Gating factor: the `better-sqlite3` single-node constraint (P2). P0/P1 hardening proceeds regardless.
+- **ADR-003 — Multi-tenant organizer model.** *Accepted.* Each admin is an independent **organizer** scoped to their own tournaments via `games.organizer_id`, with self sign-up (`POST /auth/admin/register`). The `admin` role value is reused (no role-enum change); public browsing/registration/scoreboard stay global. A platform-wide super-admin is intentionally out of scope for now.
+- **ADR-004 — Unified auth + self-registered players.** *Accepted.* A single `/auth` page handles Sign In + Sign Up; sign-up asks **Organizer or Player**. Players self-register (own credentials) and then create or join a team (`players.user_id` links the account; one team per player). The `team_leader` role is reused for player accounts (no enum change). Auto-generated leader credentials are **removed from the player flow** but retained for the **admin manual add-team** path (role-branched in `POST /teams/create`). Creating/joining returns a refreshed JWT. Old per-role endpoints are kept for backward compatibility.
 
 ---
 

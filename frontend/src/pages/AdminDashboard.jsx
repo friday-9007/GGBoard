@@ -413,7 +413,7 @@ function TeamsTab({ showToast }) {
 
   useEffect(() => {
     fetchTeams();
-    api.get('/games/active').then(res => setGames(res.data.games)).catch(() => {});
+    api.get('/games/all').then(res => setGames(res.data.games)).catch(() => {});
   }, []);
 
   const handleChange = (e) => {
@@ -579,7 +579,7 @@ function TeamsTab({ showToast }) {
                     <label className="form-label">Game / Tournament</label>
                     <select name="game_id" className="form-select" value={formData.game_id} onChange={handleChange} required>
                       <option value="">Select a tournament...</option>
-                      {games.map(g => (
+                      {games.filter(g => g.status === 'active').map(g => (
                         <option key={g.id} value={g.id}>{g.tournament_name} ({g.game_title})</option>
                       ))}
                     </select>
@@ -810,7 +810,7 @@ function ScoresTab({ showToast }) {
   const [draftScores, setDraftScores] = useState({});
 
   useEffect(() => {
-    api.get('/games/active').then(res => {
+    api.get('/games/all').then(res => {
       setGames(res.data.games);
       if (res.data.games.length > 0) {
         setSelectedGameId(res.data.games[0].id);

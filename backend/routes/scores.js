@@ -8,11 +8,13 @@ const express = require('express');
 const router = express.Router();
 const { getDb } = require('../config/db');
 const { requireAdmin } = require('../middleware/auth');
+const { validate } = require('../middleware/validate');
+const { scoreUpdateSchema } = require('../validation/schemas');
 
 /**
  * POST /scores/update
  */
-router.post('/update', requireAdmin, (req, res) => {
+router.post('/update', requireAdmin, validate(scoreUpdateSchema), (req, res) => {
   const { team_id, game_id, round_scores } = req.body;
 
   if (!team_id || !game_id || !round_scores) {
@@ -27,6 +29,9 @@ router.post('/update', requireAdmin, (req, res) => {
   if (!team) return res.status(404).json({ error: 'Team not found.' });
   const game = db.prepare('SELECT * FROM games WHERE id = ?').get(game_id);
   if (!game) return res.status(404).json({ error: 'Game not found.' });
+  if (game.organizer_id !== req.user.id) {
+    return res.status(403).json({ error: 'You can only update scores for your own tournaments.' });
+  }
 
   const totalScore = round_scores.reduce((sum, s) => sum + s, 0);
   const roundScoresJson = JSON.stringify(round_scores);

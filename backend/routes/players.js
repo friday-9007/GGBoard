@@ -10,52 +10,61 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../config/db');
-const { requireAdmin, requireAdminOrLeader } = require('../middleware/auth');
+const { requireAdmin, requireTeamLeader, requireAdminOrLeader, generateToken } = require('../middleware/auth');
 
 /**
  * POST /players/join
- * Player joins a team using a unique team code
- * Public endpoint
+ * A logged-in player joins a team using its unique code.
+ * Links the player account to the roster row and to the team (one team per player).
  */
-router.post('/join', (req, res) => {
+router.post('/join', requireTeamLeader, (req, res) => {
   const { full_name, in_game_name, email, phone, team_code } = req.body;
 
-  if (!full_name || !in_game_name || !team_code) {
-    return res.status(400).json({
-      error: 'Required fields: full_name, in_game_name, team_code'
-    });
+  if (!in_game_name || !team_code) {
+    return res.status(400).json({ error: 'Required fields: in_game_name, team_code' });
   }
 
   const db = getDb();
+  const me = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
 
-  // Find team by code
-  const team = db.prepare('SELECT * FROM teams WHERE unique_code = ?').get(team_code.toUpperCase());
+  if (me.team_id) {
+    return res.status(409).json({ error: 'You already belong to a team.' });
+  }
+
+  const team = db.prepare('SELECT * FROM teams WHERE unique_code = ?').get(String(team_code).toUpperCase());
   if (!team) {
     return res.status(404).json({ error: 'Invalid team code. No team found with this code.' });
   }
 
-  // Check for duplicate player in same team
-  const duplicate = db.prepare(
-    'SELECT id FROM players WHERE in_game_name = ? AND team_id = ?'
-  ).get(in_game_name, team.id);
-
+  const duplicate = db.prepare('SELECT id FROM players WHERE in_game_name = ? AND team_id = ?').get(in_game_name, team.id);
   if (duplicate) {
-    return res.status(409).json({
-      error: 'A player with this in-game name already exists in this team.'
-    });
+    return res.status(409).json({ error: 'A player with this in-game name already exists in this team.' });
   }
 
-  const result = db.prepare(`
-    INSERT INTO players (full_name, in_game_name, email, phone, team_id)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(full_name, in_game_name, email || null, phone || null, team.id);
+  const fullName = full_name || me.display_name || me.username;
+  let player;
+  db.transaction(() => {
+    const result = db.prepare(`
+      INSERT INTO players (full_name, in_game_name, email, phone, team_id, user_id)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(fullName, in_game_name, email || null, phone || null, team.id, me.id);
+    db.prepare('UPDATE users SET team_id = ? WHERE id = ?').run(team.id, me.id);
+    player = db.prepare('SELECT * FROM players WHERE id = ?').get(result.lastInsertRowid);
+  })();
 
-  const player = db.prepare('SELECT * FROM players WHERE id = ?').get(result.lastInsertRowid);
+  // Refresh token so it carries the new teamId
+  const updated = db.prepare('SELECT * FROM users WHERE id = ?').get(me.id);
+  const token = generateToken(updated);
 
   res.status(201).json({
     message: `Successfully joined team "${team.team_name}"!`,
     player,
-    team_name: team.team_name
+    team_name: team.team_name,
+    token,
+    user: {
+      id: updated.id, username: updated.username, role: updated.role,
+      displayName: updated.display_name, teamId: updated.team_id,
+    },
   });
 });
 
@@ -78,6 +87,12 @@ router.post('/add', requireAdmin, (req, res) => {
   const team = db.prepare('SELECT * FROM teams WHERE id = ?').get(team_id);
   if (!team) {
     return res.status(404).json({ error: 'Team not found.' });
+  }
+
+  // Organizer can only add players to teams within their own tournaments
+  const ownerGame = db.prepare('SELECT organizer_id FROM games WHERE id = ?').get(team.game_id);
+  if (!ownerGame || ownerGame.organizer_id !== req.user.id) {
+    return res.status(403).json({ error: 'You can only add players to teams in your own tournaments.' });
   }
 
   const result = db.prepare(`
@@ -112,9 +127,9 @@ router.get('/all', requireAdmin, (req, res) => {
     FROM players p
     LEFT JOIN teams t ON t.id = p.team_id
     LEFT JOIN games g ON g.id = t.game_id
-    WHERE 1=1
+    WHERE g.organizer_id = ?
   `;
-  const params = [];
+  const params = [req.user.id];
 
   if (team_id) {
     query += ' AND p.team_id = ?';
@@ -157,6 +172,14 @@ router.patch('/:id', requireAdminOrLeader, (req, res) => {
     return res.status(403).json({ error: 'You can only edit players in your own team.' });
   }
 
+  // Organizer can only edit players within their own tournaments
+  if (req.user.role === 'admin') {
+    const owns = db.prepare('SELECT g.organizer_id FROM teams t JOIN games g ON g.id = t.game_id WHERE t.id = ?').get(existing.team_id);
+    if (!owns || owns.organizer_id !== req.user.id) {
+      return res.status(403).json({ error: 'You can only edit players in your own tournaments.' });
+    }
+  }
+
   db.prepare(`
     UPDATE players SET
       full_name = COALESCE(?, full_name),
@@ -192,6 +215,14 @@ router.delete('/:id', requireAdminOrLeader, (req, res) => {
   // Team leader can only delete players in their own team
   if (req.user.role === 'team_leader' && existing.team_id !== req.user.teamId) {
     return res.status(403).json({ error: 'You can only remove players from your own team.' });
+  }
+
+  // Organizer can only remove players within their own tournaments
+  if (req.user.role === 'admin') {
+    const owns = db.prepare('SELECT g.organizer_id FROM teams t JOIN games g ON g.id = t.game_id WHERE t.id = ?').get(existing.team_id);
+    if (!owns || owns.organizer_id !== req.user.id) {
+      return res.status(403).json({ error: 'You can only remove players in your own tournaments.' });
+    }
   }
 
   db.prepare('DELETE FROM players WHERE id = ?').run(id);

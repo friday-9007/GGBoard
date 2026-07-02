@@ -1,10 +1,13 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import LandingPage from './pages/LandingPage';
+import AuthPage from './pages/AuthPage';
 import AdminLogin from './pages/AdminLogin';
+import AdminRegister from './pages/AdminRegister';
 import LeaderLogin from './pages/LeaderLogin';
 import CreateTeam from './pages/CreateTeam';
 import JoinTeam from './pages/JoinTeam';
+import PlayerHub from './pages/PlayerHub';
 import PublicScoreboard from './pages/PublicScoreboard';
 import AdminDashboard from './pages/AdminDashboard';
 import LeaderDashboard from './pages/LeaderDashboard';
@@ -23,7 +26,7 @@ function ProtectedRoute({ children, requiredRole }) {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/auth" replace />;
   }
 
   if (requiredRole && user.role !== requiredRole) {
@@ -40,11 +43,37 @@ export default function App() {
         <Routes>
           {/* Public Routes */}
           <Route path="/" element={<LandingPage />} />
+          <Route path="/auth" element={<AuthPage />} />
           <Route path="/admin/login" element={<AdminLogin />} />
+          <Route path="/admin/register" element={<AdminRegister />} />
           <Route path="/leader/login" element={<LeaderLogin />} />
-          <Route path="/create-team" element={<CreateTeam />} />
-          <Route path="/join-team" element={<JoinTeam />} />
           <Route path="/scoreboard" element={<PublicScoreboard />} />
+
+          {/* Protected Player Routes */}
+          <Route
+            path="/player"
+            element={
+              <ProtectedRoute requiredRole="team_leader">
+                <PlayerHub />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/create-team"
+            element={
+              <ProtectedRoute requiredRole="team_leader">
+                <CreateTeam />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/join-team"
+            element={
+              <ProtectedRoute requiredRole="team_leader">
+                <JoinTeam />
+              </ProtectedRoute>
+            }
+          />
 
           {/* Protected Admin Routes */}
           <Route
