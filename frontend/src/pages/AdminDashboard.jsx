@@ -249,8 +249,16 @@ function OverviewTab({ stats, user, setActiveTab }) {
 function GamesTab({ showToast }) {
   const [games, setGames] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [formData, setFormData] = useState({ game_title: '', tournament_name: '', num_rounds: 3, status: 'active' });
+  const [formData, setFormData] = useState({ game_title: '', tournament_name: '', num_rounds: 3, status: 'active', description: '', start_date: '', end_date: '', registration_deadline: '', prize_pool: '' });
   const [editingId, setEditingId] = useState(null);
+
+  // ISO (UTC) → value for <input type="datetime-local"> (local wall-clock, "YYYY-MM-DDTHH:mm")
+  const toLocalInput = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  };
 
   const fetchGames = () => {
     setLoading(true);
@@ -278,7 +286,7 @@ function GamesTab({ showToast }) {
         await api.post('/games/create', formData);
         showToast('New tournament created.');
       }
-      setFormData({ game_title: '', tournament_name: '', num_rounds: 3, status: 'active' });
+      setFormData({ game_title: '', tournament_name: '', num_rounds: 3, status: 'active', description: '', start_date: '', end_date: '', registration_deadline: '', prize_pool: '' });
       setEditingId(null);
       fetchGames();
     } catch (err) {
@@ -288,7 +296,11 @@ function GamesTab({ showToast }) {
 
   const startEdit = (g) => {
     setEditingId(g.id);
-    setFormData({ game_title: g.game_title, tournament_name: g.tournament_name, num_rounds: g.num_rounds, status: g.status });
+    setFormData({
+      game_title: g.game_title, tournament_name: g.tournament_name, num_rounds: g.num_rounds, status: g.status,
+      description: g.description || '', prize_pool: g.prize_pool || '',
+      start_date: toLocalInput(g.start_date), end_date: toLocalInput(g.end_date), registration_deadline: toLocalInput(g.registration_deadline),
+    });
   };
 
   const deleteGame = async (id) => {
@@ -329,16 +341,46 @@ function GamesTab({ showToast }) {
             <div className="form-group">
               <label className="form-label">Status</label>
               <select name="status" className="form-select" value={formData.status} onChange={handleChange}>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
+                <option value="active">Active (visible to players)</option>
+                <option value="inactive">Inactive (hidden / draft)</option>
               </select>
             </div>
+
+            <div style={{ borderTop: '1px solid var(--border-color)', margin: 'var(--space-md) 0', paddingTop: 'var(--space-sm)' }}>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px' }}>Event details (shown to players)</p>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Description</label>
+              <textarea name="description" className="form-input" rows="3" value={formData.description} onChange={handleChange} placeholder="What's this tournament about — format, rules, who can join…" />
+            </div>
+            <div style={{ display: 'flex', gap: 'var(--space-md)' }}>
+              <div className="form-group" style={{ flex: 1 }}>
+                <label className="form-label">Start Date</label>
+                <input name="start_date" type="datetime-local" className="form-input" value={formData.start_date} onChange={handleChange} />
+              </div>
+              <div className="form-group" style={{ flex: 1 }}>
+                <label className="form-label">End Date (optional)</label>
+                <input name="end_date" type="datetime-local" className="form-input" value={formData.end_date} onChange={handleChange} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 'var(--space-md)' }}>
+              <div className="form-group" style={{ flex: 1 }}>
+                <label className="form-label">Registration Deadline</label>
+                <input name="registration_deadline" type="datetime-local" className="form-input" value={formData.registration_deadline} onChange={handleChange} />
+              </div>
+              <div className="form-group" style={{ flex: 1 }}>
+                <label className="form-label">Prize Pool</label>
+                <input name="prize_pool" className="form-input" value={formData.prize_pool} onChange={handleChange} placeholder="e.g. $5,000" />
+              </div>
+            </div>
+
             <div style={{ display: 'flex', gap: 'var(--space-sm)' }}>
               <button id="game-save-btn" type="submit" className="btn btn-primary">{editingId ? 'Update' : 'Create'}</button>
               {editingId && (
                 <button type="button" className="btn btn-secondary" onClick={() => {
                   setEditingId(null);
-                  setFormData({ game_title: '', tournament_name: '', num_rounds: 3, status: 'active' });
+                  setFormData({ game_title: '', tournament_name: '', num_rounds: 3, status: 'active', description: '', start_date: '', end_date: '', registration_deadline: '', prize_pool: '' });
                 }}>Cancel</button>
               )}
             </div>

@@ -11,7 +11,8 @@ const bcrypt = require('bcryptjs');
 const { users } = require('../repositories');
 const { generateToken, requireAuth } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
-const { registerSchema, loginSchema, signupSchema, selectRoleSchema } = require('../validation/schemas');
+const { registerSchema, loginSchema, signupSchema, selectRoleSchema, profileSchema, gameProfileSchema } = require('../validation/schemas');
+const { upsertGame } = require('../utils/gameProfile');
 const asyncHandler = require('../utils/asyncHandler');
 
 const publicUser = (u, overrides = {}) => ({
@@ -21,6 +22,27 @@ const publicUser = (u, overrides = {}) => ({
   displayName: u.display_name,
   teamId: u.team_id || null,
   ...overrides,
+});
+
+// Full profile view (never exposes password_hash)
+const profileView = (u) => ({
+  id: u.id,
+  username: u.username,
+  role: u.role,
+  roleSelected: u.role_selected,
+  displayName: u.display_name,
+  email: u.email || '',
+  phone: u.phone || '',
+  games: u.games || [],
+  dateOfBirth: u.date_of_birth ? new Date(u.date_of_birth).toISOString().slice(0, 10) : '',
+  country: u.country || '',
+  city: u.city || '',
+  gender: u.gender || '',
+  language: u.language || '',
+  lookingForTeam: !!u.looking_for_team,
+  preferredRole: u.preferred_role || '',
+  bio: u.bio || '',
+  teamId: u.team_id || null,
 });
 
 /**
@@ -68,6 +90,56 @@ router.post('/select-role', requireAuth, validate(selectRoleSchema), asyncHandle
     token: generateToken(updated),
     user: publicUser(updated, { rolePending: false }),
   });
+}));
+
+/**
+ * GET /auth/me — current user's full profile (auth required)
+ */
+router.get('/me', requireAuth, asyncHandler(async (req, res) => {
+  const user = await users.findById(req.user.id);
+  if (!user) return res.status(404).json({ error: 'Account not found.' });
+  res.json({ user: profileView(user) });
+}));
+
+/**
+ * PATCH /auth/profile — update own profile (display name, email, phone, games)
+ */
+router.patch('/profile', requireAuth, validate(profileSchema), asyncHandler(async (req, res) => {
+  const { display_name, email, phone, games, date_of_birth, country, city, gender, language, looking_for_team, preferred_role, bio } = req.body;
+
+  const data = {};
+  if (display_name !== undefined) data.display_name = display_name || null;
+  if (email !== undefined) data.email = email || null;
+  if (phone !== undefined) data.phone = phone || null;
+  if (games !== undefined) data.games = games;
+  if (date_of_birth !== undefined) data.date_of_birth = date_of_birth || null;
+  if (country !== undefined) data.country = country || null;
+  if (city !== undefined) data.city = city || null;
+  if (gender !== undefined) data.gender = gender || null;
+  if (language !== undefined) data.language = language || null;
+  if (looking_for_team !== undefined) data.looking_for_team = !!looking_for_team;
+  if (preferred_role !== undefined) data.preferred_role = preferred_role || null;
+  if (bio !== undefined) data.bio = bio || null;
+
+  const updated = Object.keys(data).length
+    ? await users.updateProfile(req.user.id, data)
+    : await users.findById(req.user.id);
+
+  res.json({ message: 'Profile updated.', user: profileView(updated) });
+}));
+
+/**
+ * POST /auth/profile/game — upsert one game's identity (game, ign, uid).
+ * Used by the registration gate when a required game profile is incomplete.
+ */
+router.post('/profile/game', requireAuth, validate(gameProfileSchema), asyncHandler(async (req, res) => {
+  const { game, ign, uid } = req.body;
+  const user = await users.findById(req.user.id);
+  if (!user) return res.status(404).json({ error: 'Account not found.' });
+
+  const games = upsertGame(user.games, { game, ign, uid });
+  const updated = await users.updateProfile(req.user.id, { games });
+  res.json({ message: 'Game profile saved.', user: profileView(updated) });
 }));
 
 /**

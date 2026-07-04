@@ -50,9 +50,8 @@ router.post('/add', requireAdmin, asyncHandler(async (req, res) => {
 
   const team = await teams.findById(Number(team_id));
   if (!team) return res.status(404).json({ error: 'Team not found.' });
-  const organizerId = await teams.organizerId(team.id);
-  if (organizerId !== req.user.id) {
-    return res.status(403).json({ error: 'You can only add players to teams in your own tournaments.' });
+  if (!(await teams.registeredWithOrganizer(team.id, req.user.id))) {
+    return res.status(403).json({ error: 'You can only add players to teams registered in your tournaments.' });
   }
 
   const player = await players.create({ full_name, in_game_name, email: email || null, phone: phone || null, team_id: team.id });
@@ -79,8 +78,9 @@ router.patch('/:id', requireAdminOrLeader, asyncHandler(async (req, res) => {
     if (!isLeader && !isSelf) return res.status(403).json({ error: 'Only the team leader can edit other players.' });
   }
   if (req.user.role === 'admin') {
-    const organizerId = await teams.organizerId(existing.team_id);
-    if (organizerId !== req.user.id) return res.status(403).json({ error: 'You can only edit players in your own tournaments.' });
+    if (!(await teams.registeredWithOrganizer(existing.team_id, req.user.id))) {
+      return res.status(403).json({ error: 'You can only edit players on teams registered in your tournaments.' });
+    }
   }
 
   // Only overwrite provided (truthy) fields — matches the previous COALESCE behaviour
@@ -107,8 +107,9 @@ router.delete('/:id', requireAdminOrLeader, asyncHandler(async (req, res) => {
     if (!isLeader && !isSelf) return res.status(403).json({ error: 'Only the team leader can remove other players.' });
   }
   if (req.user.role === 'admin') {
-    const organizerId = await teams.organizerId(existing.team_id);
-    if (organizerId !== req.user.id) return res.status(403).json({ error: 'You can only remove players in your own tournaments.' });
+    if (!(await teams.registeredWithOrganizer(existing.team_id, req.user.id))) {
+      return res.status(403).json({ error: 'You can only remove players on teams registered in your tournaments.' });
+    }
   }
 
   await players.removeAndFree(id, existing.user_id);

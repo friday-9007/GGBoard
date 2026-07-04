@@ -37,6 +37,15 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('ggboard_user');
   };
 
+  // Merge a partial update into the current user (e.g. after leaving a team).
+  const updateUser = (partial) => {
+    setUser((prev) => {
+      const next = { ...prev, ...partial };
+      localStorage.setItem('ggboard_user', JSON.stringify(next));
+      return next;
+    });
+  };
+
   const isAdmin = user?.role === 'admin';
   const isTeamLeader = user?.role === 'team_leader';
   const isAuthenticated = !!token;
@@ -44,7 +53,7 @@ export function AuthProvider({ children }) {
   return (
     <AuthContext.Provider value={{
       user, token, loading,
-      login, logout,
+      login, logout, updateUser,
       isAdmin, isTeamLeader, isAuthenticated
     }}>
       {children}

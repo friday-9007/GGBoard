@@ -21,17 +21,16 @@ router.post('/', requireAdmin, asyncHandler(async (req, res) => {
   let headers = [];
 
   if (data_type === 'players') {
-    const teamWhere = { game: { organizer_id: me } };
-    if (gid) teamWhere.game_id = gid;
+    // players on teams registered in the organizer's tournaments
+    const some = gid ? { game_id: gid, game: { organizer_id: me } } : { game: { organizer_id: me } };
     const found = await prisma.player.findMany({
-      where: { team: teamWhere },
-      include: { team: { select: { team_name: true, game: { select: { game_title: true, tournament_name: true } } } } },
+      where: { team: { scores: { some } } },
+      include: { team: { select: { team_name: true, game: true } } },
       orderBy: { created_at: 'desc' },
     });
     rows = found.map((p) => ({
       full_name: p.full_name, in_game_name: p.in_game_name, email: p.email, phone: p.phone,
-      team_name: p.team?.team_name ?? null, game_title: p.team?.game?.game_title ?? null,
-      tournament_name: p.team?.game?.tournament_name ?? null,
+      team_name: p.team?.team_name ?? null, game_title: p.team?.game ?? null,
     }));
     headers = fields || ['team_name', 'full_name', 'in_game_name', 'email', 'phone', 'game_title'];
   } else if (data_type === 'scores') {
@@ -48,29 +47,27 @@ router.post('/', requireAdmin, asyncHandler(async (req, res) => {
     }));
     headers = fields || ['team_name', 'round_scores', 'total_score', 'game_title'];
   } else if (data_type === 'combined') {
-    const teamWhere = { game: { organizer_id: me } };
-    if (gid) teamWhere.game_id = gid;
-    const found = await prisma.player.findMany({
-      where: { team: teamWhere },
+    // one row per (registered team's player) with that tournament's score
+    const where = { game: { organizer_id: me } };
+    if (gid) where.game_id = gid;
+    const regs = await prisma.score.findMany({
+      where,
+      orderBy: { total_score: 'desc' },
       include: {
-        team: {
-          select: {
-            team_name: true,
-            game: { select: { game_title: true } },
-            scores: { select: { round_scores: true, total_score: true } },
-          },
-        },
+        game: { select: { game_title: true, tournament_name: true } },
+        team: { select: { team_name: true, players: { select: { full_name: true, in_game_name: true } } } },
       },
-      orderBy: { created_at: 'desc' },
     });
-    rows = found.map((p) => {
-      const score = p.team?.scores?.[0] || {};
-      return {
-        team_name: p.team?.team_name ?? null, full_name: p.full_name, in_game_name: p.in_game_name,
-        round_scores: JSON.stringify(score.round_scores ?? []), total_score: score.total_score ?? 0,
-        game_title: p.team?.game?.game_title ?? null,
+    rows = [];
+    for (const r of regs) {
+      const base = {
+        team_name: r.team?.team_name ?? null, tournament_name: r.game?.tournament_name ?? null,
+        game_title: r.game?.game_title ?? null, round_scores: JSON.stringify(r.round_scores ?? []), total_score: r.total_score,
       };
-    });
+      const ps = r.team?.players || [];
+      if (ps.length === 0) rows.push({ ...base, full_name: '', in_game_name: '' });
+      else ps.forEach((p) => rows.push({ ...base, full_name: p.full_name, in_game_name: p.in_game_name }));
+    }
     headers = fields || ['team_name', 'full_name', 'in_game_name', 'round_scores', 'total_score', 'game_title'];
   } else {
     return res.status(400).json({ error: 'Invalid data_type.' });

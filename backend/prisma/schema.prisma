@@ -20,8 +20,19 @@ model User {
   role          String
   role_selected Boolean  @default(true)
   display_name  String?
-  team_id       Int? // soft link (no FK), app-maintained
-  created_at    DateTime @default(now())
+  email            String?
+  phone            String?
+  games            Json      @default(dbgenerated("'[]'::jsonb")) // [{ game, ign, uid, rank, role }]
+  date_of_birth    DateTime? @db.Date
+  country          String?
+  city             String?
+  gender           String?
+  language         String?
+  looking_for_team Boolean   @default(false)
+  preferred_role   String?
+  bio              String?
+  team_id          Int? // soft link (no FK), app-maintained
+  created_at       DateTime  @default(now())
 
   organized_games Game[]       @relation("GameOrganizer")
   led_teams       Team[]       @relation("TeamLeader")
@@ -33,16 +44,20 @@ model User {
 }
 
 model Game {
-  id              Int      @id @default(autoincrement())
-  game_title      String
-  tournament_name String
-  status          String   @default("active")
-  num_rounds      Int      @default(3)
-  organizer_id    Int?
-  created_at      DateTime @default(now())
+  id                    Int       @id @default(autoincrement())
+  game_title            String
+  tournament_name       String
+  status                String    @default("active")
+  num_rounds            Int       @default(3)
+  description           String?
+  start_date            DateTime?
+  end_date              DateTime?
+  registration_deadline DateTime?
+  prize_pool            String?
+  organizer_id          Int?
+  created_at            DateTime  @default(now())
 
   organizer   User?        @relation("GameOrganizer", fields: [organizer_id], references: [id], onDelete: Cascade)
-  teams       Team[]
   scores      Score[]
   submissions Submission[]
 
@@ -53,14 +68,13 @@ model Team {
   id          Int      @id @default(autoincrement())
   team_name   String
   unique_code String   @unique
-  game_id     Int
+  game        String // the game title this team plays (e.g. "Valorant")
   leader_id   Int?
   created_at  DateTime @default(now())
 
-  game        Game         @relation(fields: [game_id], references: [id], onDelete: Cascade)
   leader      User?        @relation("TeamLeader", fields: [leader_id], references: [id], onDelete: SetNull)
   players     Player[]
-  scores      Score[]
+  scores      Score[] // each row = a registration into a tournament (game_id)
   submissions Submission[]
 
   @@map("teams")
