@@ -8,7 +8,7 @@
 
 ## 📌 Progress Log
 
-> **Last reconciled:** 2026-06-30 · **Branch:** `beta` · **Anchor commits:** `8a00e34` (security/docs), `103bee5` (UI WIP)
+> **Last reconciled:** 2026-07-04 · **Branch:** `beta` · **Anchor commits:** `a467977` (auth flow + RoleSelect), plus the uncommitted Supabase/Prisma migration
 > Checkboxes below were verified against the **actual code**, not assumed. `[x]` = done & verified · `[ ]` = not done · **⚠️ note** = partial/caveat.
 
 **This session:**
@@ -21,12 +21,13 @@
 - ✅ **Security hardening** (via Context7 MCP): `express-rate-limit` on `/auth` + global, Zod input validation on auth/game/score endpoints; verified
 - ✅ **Two-step sign-up + mandatory role (ADR-005)** — `POST /auth/signup` creates the account on "Continue" (duplicate username shows on the sign-up form), then `/auth/role` (Organizer/Player cards) finalises via `POST /auth/select-role`. Pending accounts (`users.role_selected=0`, migration 003) are blocked from every role-gated route (`403`) and force-redirected to `/auth/role` — including on a later sign-in if the user closed the site before choosing. Verified: 11/11 tests.
 - ✅ **Audit pass (Fable 5)** — fixed 6 flaws: team delete no longer destroys/strands accounts; player removal frees the linked account; leader-only powers (members can't rename team / kick teammates, self-leave allowed); 401-vs-403 semantics (403 no longer logs users out); stale-token membership guard reads DB; duplicate team names blocked per tournament. Plus: 15s live scoreboard polling, legacy routes redirected to `/auth`/`/player`, diagrams re-rendered. 12/12 regression tests pass.
+- ✅ **Cloud database migration (ADR-006)** — moved off local SQLite to **Supabase Postgres 17** via **Prisma 6**, behind a **repository layer** ([repositories/index.js](backend/repositories/index.js)) so a future engine swap is one folder. Full async rewrite of all 6 routers + `config/prisma` + `asyncHandler` + Prisma error mapping (`P2002`/`P2003`/`P2025`). `round_scores` → `jsonb`; new **`submissions`** table (references to media in Supabase Storage — images now, gameplay-verification video later); RLS enabled deny-by-default. Verified end-to-end against the live DB: **34/34 regression checks**.
 - 🔎 Reconciled this checklist with verified code state (below)
 
 ### Phase status at a glance
 | Phase | Area | Status |
 |---|---|---|
-| 0 | Architecture & Hardening *(new)* | 🟡 P0/P1 + migrations + multi-tenant + validation + rate-limit done; deploy target pending |
+| 0 | Architecture & Hardening *(new)* | ✅ P0/P1 + multi-tenant + validation + rate-limit done; **deploy target decided → Supabase (ADR-006)** |
 | 1 | Project Setup & Foundation | ✅ Complete |
 | 2 | Authentication System | ✅ Complete |
 | 3 | Landing Page | ✅ Complete |
@@ -36,7 +37,7 @@
 | 7 | Public Scoreboard | ✅ Complete (live auto-refresh pending) |
 | 8 | Polish & Edge Cases | 🟡 Partial (rate-limit, dup team-name, client validation) |
 | 9 | Testing | 🟡 Smoke-tested only |
-| 10 | Deployment | ⬜ Not started (config groundwork laid) |
+| 10 | Deployment | 🟡 DB is live on Supabase Postgres; API + frontend hosting still to do |
 
 ---
 
@@ -51,7 +52,8 @@
 - [x] **Multi-tenant organizers** (ADR-003) — `games.organizer_id`, organizer sign-up, owner-scoped admin endpoints, AdminRegister UI
 - [x] **P1** — Input-validation layer → Zod middleware ([validate.js](backend/middleware/validate.js) + [schemas.js](backend/validation/schemas.js))
 - [x] **P2** — Rate limiting on `/auth/*` → express-rate-limit ([rateLimit.js](backend/middleware/rateLimit.js))
-- [ ] Decide target deployment architecture (ADR-002: local-first vs Supabase vs Cloudflare)
+- [x] Decide target deployment architecture → **Supabase Postgres** chosen & implemented (ADR-002 → ADR-006)
+- [x] **Migrate data layer** → Prisma 6 + repository layer + `submissions` table; 34/34 regression checks against the live DB
 
 ---
 
@@ -65,15 +67,16 @@
 - [x] Configure basic README
 
 ### 1.2 — Database Setup
-- [x] Design and finalize database schema
+- [x] Design and finalize database schema  ✅ *now Supabase Postgres 17, mirrored in [schema.prisma](backend/prisma/schema.prisma) (ADR-006)*
 - [x] Create tables / collections:
   - [x] `games` — tournament/game entries
   - [x] `teams` — team info + unique code + linked game
   - [x] `players` — player details + linked team
-  - [x] `scores` — per-round scores + total + linked team + linked game
-  - [x] `users` — auth credentials + role (admin / team_leader)
-- [x] Set up database connection
-- [x] Seed admin account (super-admin credentials)
+  - [x] `scores` — per-round scores (`jsonb`) + total + linked team + linked game
+  - [x] `users` — auth credentials + role (admin / team_leader) + `role_selected`
+  - [x] `submissions` — references to uploaded media in Supabase Storage (image now, video later)
+- [x] Set up database connection  ✅ *Prisma Client singleton over the Supabase pooler ([config/prisma.js](backend/config/prisma.js)); all access via the repository layer*
+- [x] Seed admin account (super-admin credentials)  ✅ *Prisma-based idempotent [seed.js](backend/database/seed.js)*
 
 ### 1.3 — Backend / API Setup
 - [x] Initialize backend server
@@ -323,7 +326,7 @@
 - [ ] Set up production environment variables  ⚠️ *groundwork laid: env-driven config + `.env.example` files*
 - [ ] Deploy backend / API
 - [ ] Deploy frontend
-- [ ] Connect to production database
+- [x] Connect to production database  ✅ *Supabase Postgres (cloud) is already the live DB*
 - [ ] Test all flows on live deployment
 - [ ] Set up domain (if applicable)
 - [ ] Final review and go-live
@@ -332,7 +335,7 @@
 
 ## 📋 Pending / TBD Items
 
-- [x] ~~Decide tech stack~~ → React + Vite · Node/Express · SQLite (better-sqlite3)
+- [x] ~~Decide tech stack~~ → React + Vite · Node/Express · **Supabase Postgres via Prisma** (was SQLite/better-sqlite3; migrated in ADR-006)
 - [x] ~~Define extra player fields~~ → email, phone (both optional)
 - [ ] Decide on real-time strategy (polling vs WebSockets for scoreboard)
 - [x] ~~Admin account creation flow~~ → seeded via `npm run seed` (`admin` / `admin123`)

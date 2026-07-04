@@ -1,302 +1,166 @@
 /**
- * Auth Routes
- * POST /auth/admin/login   — Admin login
- * POST /auth/leader/login   — Team Leader login
- * POST /auth/logout          — Logout (client-side token removal)
+ * Auth Routes (Prisma / Supabase)
+ * Unified:  POST /auth/signup, /auth/select-role, /auth/login
+ * Legacy:   POST /auth/register, /auth/admin/login, /auth/leader/login, /auth/admin/register
+ *           POST /auth/logout
  */
 
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
-const { getDb } = require('../config/db');
+const { users } = require('../repositories');
 const { generateToken, requireAuth } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
 const { registerSchema, loginSchema, signupSchema, selectRoleSchema } = require('../validation/schemas');
+const asyncHandler = require('../utils/asyncHandler');
 
-/**
- * POST /auth/admin/login
- * Admin login with username & password
- */
-router.post('/admin/login', (req, res) => {
-  const { username, password } = req.body;
-
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Username and password are required.' });
-  }
-
-  const db = getDb();
-  const user = db.prepare('SELECT * FROM users WHERE username = ? AND role = ?').get(username, 'admin');
-
-  if (!user) {
-    return res.status(401).json({ error: 'Invalid admin credentials.' });
-  }
-
-  const validPassword = bcrypt.compareSync(password, user.password_hash);
-  if (!validPassword) {
-    return res.status(401).json({ error: 'Invalid admin credentials.' });
-  }
-
-  const token = generateToken(user);
-
-  res.json({
-    message: 'Admin login successful.',
-    token,
-    user: {
-      id: user.id,
-      username: user.username,
-      role: user.role,
-      displayName: user.display_name
-    }
-  });
-});
-
-/**
- * POST /auth/leader/login
- * Team Leader login with username & password
- */
-router.post('/leader/login', (req, res) => {
-  const { username, password } = req.body;
-
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Username and password are required.' });
-  }
-
-  const db = getDb();
-  const user = db.prepare('SELECT * FROM users WHERE username = ? AND role = ?').get(username, 'team_leader');
-
-  if (!user) {
-    return res.status(401).json({ error: 'Invalid team leader credentials.' });
-  }
-
-  const validPassword = bcrypt.compareSync(password, user.password_hash);
-  if (!validPassword) {
-    return res.status(401).json({ error: 'Invalid team leader credentials.' });
-  }
-
-  const token = generateToken(user);
-
-  res.json({
-    message: 'Team Leader login successful.',
-    token,
-    user: {
-      id: user.id,
-      username: user.username,
-      role: user.role,
-      displayName: user.display_name,
-      teamId: user.team_id
-    }
-  });
-});
-
-/**
- * POST /auth/admin/register
- * Organizer (admin) self sign-up. Each organizer manages only their own events.
- * Returns a token so the new organizer is logged in immediately.
- */
-router.post('/admin/register', (req, res) => {
-  const { username, password, display_name } = req.body;
-
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Username and password are required.' });
-  }
-  if (String(username).trim().length < 3) {
-    return res.status(400).json({ error: 'Username must be at least 3 characters.' });
-  }
-  if (String(password).length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters.' });
-  }
-
-  const db = getDb();
-
-  const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
-  if (existing) {
-    return res.status(409).json({ error: 'That username is already taken.' });
-  }
-
-  const passwordHash = bcrypt.hashSync(password, bcrypt.genSaltSync(10));
-  const result = db.prepare(`
-    INSERT INTO users (username, password_hash, role, display_name)
-    VALUES (?, ?, 'admin', ?)
-  `).run(username, passwordHash, display_name || username);
-
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
-  const token = generateToken(user);
-
-  res.status(201).json({
-    message: 'Organizer account created.',
-    token,
-    user: {
-      id: user.id,
-      username: user.username,
-      role: user.role,
-      displayName: user.display_name,
-    },
-  });
-});
-
-/**
- * POST /auth/register  (unified)
- * Self sign-up for an organizer (admin) or a player (team-side account).
- * body: { role: 'organizer' | 'player', username, password, display_name }
- */
-router.post('/register', validate(registerSchema), (req, res) => {
-  const { role, username, password, display_name } = req.body;
-
-  const roleMap = { organizer: 'admin', player: 'team_leader' };
-  const dbRole = roleMap[role];
-  if (!dbRole) {
-    return res.status(400).json({ error: "role must be 'organizer' or 'player'." });
-  }
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Username and password are required.' });
-  }
-  if (String(username).trim().length < 3) {
-    return res.status(400).json({ error: 'Username must be at least 3 characters.' });
-  }
-  if (String(password).length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters.' });
-  }
-
-  const db = getDb();
-  const uname = String(username).trim();
-  const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(uname);
-  if (existing) {
-    return res.status(409).json({ error: 'That username is already taken.' });
-  }
-
-  const passwordHash = bcrypt.hashSync(password, bcrypt.genSaltSync(10));
-  const result = db.prepare(`
-    INSERT INTO users (username, password_hash, role, display_name)
-    VALUES (?, ?, ?, ?)
-  `).run(uname, passwordHash, dbRole, String(display_name || uname).trim());
-
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
-  const token = generateToken(user);
-
-  res.status(201).json({
-    message: 'Account created.',
-    token,
-    user: {
-      id: user.id,
-      username: user.username,
-      role: user.role,
-      displayName: user.display_name,
-      teamId: user.team_id || null,
-    },
-  });
+const publicUser = (u, overrides = {}) => ({
+  id: u.id,
+  username: u.username,
+  role: u.role,
+  displayName: u.display_name,
+  teamId: u.team_id || null,
+  ...overrides,
 });
 
 /**
  * POST /auth/signup  (step 1 of 2)
- * Creates the account from credentials only; the role is chosen next on
- * /auth/select-role. A pending account has role_selected = 0 and a placeholder
- * role, and is blocked from every role-gated route until the role is chosen.
+ * Creates a pending account (role not yet chosen). Duplicate username -> 409 here.
  */
-router.post('/signup', validate(signupSchema), (req, res) => {
+router.post('/signup', validate(signupSchema), asyncHandler(async (req, res) => {
   const { username, password, display_name } = req.body;
-  const db = getDb();
-
   const uname = String(username).trim();
-  const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(uname);
-  if (existing) {
+
+  if (await users.findByUsername(uname)) {
     return res.status(409).json({ error: 'That username is already taken.' });
   }
 
   const passwordHash = bcrypt.hashSync(password, bcrypt.genSaltSync(10));
-  // Placeholder role satisfies the NOT NULL + CHECK constraint; role_selected = 0
-  // marks it pending, so guards deny access until the real role is chosen.
-  const result = db.prepare(`
-    INSERT INTO users (username, password_hash, role, role_selected, display_name)
-    VALUES (?, ?, 'team_leader', 0, ?)
-  `).run(uname, passwordHash, String(display_name || uname).trim());
-
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
-  const token = generateToken(user);
+  const user = await users.create({
+    username: uname,
+    password_hash: passwordHash,
+    role: 'team_leader',  // placeholder; finalised on /auth/select-role
+    role_selected: false,
+    display_name: String(display_name || uname).trim(),
+  });
 
   res.status(201).json({
     message: 'Account created. Choose your role to continue.',
-    token,
-    user: {
-      id: user.id,
-      username: user.username,
-      role: null, // not chosen yet
-      displayName: user.display_name,
-      teamId: null,
-      rolePending: true,
-    },
+    token: generateToken(user),
+    user: publicUser(user, { role: null, teamId: null, rolePending: true }),
   });
-});
+}));
 
 /**
  * POST /auth/select-role  (step 2 of 2)
  * Finalises a pending account's role. Auth required; must still be pending.
  */
-router.post('/select-role', requireAuth, validate(selectRoleSchema), (req, res) => {
-  const { role } = req.body;
-  const dbRole = { organizer: 'admin', player: 'team_leader' }[role];
-  const db = getDb();
+router.post('/select-role', requireAuth, validate(selectRoleSchema), asyncHandler(async (req, res) => {
+  const dbRole = { organizer: 'admin', player: 'team_leader' }[req.body.role];
 
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
-  if (!user) {
-    return res.status(404).json({ error: 'Account not found.' });
-  }
-  if (user.role_selected) {
-    return res.status(409).json({ error: 'Your account type is already set.' });
-  }
+  const user = await users.findById(req.user.id);
+  if (!user) return res.status(404).json({ error: 'Account not found.' });
+  if (user.role_selected) return res.status(409).json({ error: 'Your account type is already set.' });
 
-  db.prepare('UPDATE users SET role = ?, role_selected = 1 WHERE id = ?').run(dbRole, user.id);
-  const updated = db.prepare('SELECT * FROM users WHERE id = ?').get(user.id);
-  const token = generateToken(updated);
-
+  const updated = await users.setRole(user.id, dbRole);
   res.json({
     message: 'Account type set.',
-    token,
-    user: {
-      id: updated.id,
-      username: updated.username,
-      role: updated.role,
-      displayName: updated.display_name,
-      teamId: updated.team_id || null,
-      rolePending: false,
-    },
+    token: generateToken(updated),
+    user: publicUser(updated, { rolePending: false }),
   });
-});
+}));
 
 /**
- * POST /auth/login  (unified)
- * Logs in any user (organizer/admin or player/team_leader) by username.
+ * POST /auth/login  (unified) — any role; reports rolePending
  */
-router.post('/login', validate(loginSchema), (req, res) => {
+router.post('/login', validate(loginSchema), asyncHandler(async (req, res) => {
   const { username, password } = req.body;
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Username and password are required.' });
-  }
-
-  const db = getDb();
-  const user = db.prepare('SELECT * FROM users WHERE username = ?').get(String(username).trim());
+  const user = await users.findByUsername(String(username).trim());
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
     return res.status(401).json({ error: 'Invalid username or password.' });
   }
-
-  const token = generateToken(user);
   const rolePending = !user.role_selected;
   res.json({
     message: 'Login successful.',
-    token,
-    user: {
-      id: user.id,
-      username: user.username,
-      role: rolePending ? null : user.role,
-      displayName: user.display_name,
-      teamId: user.team_id || null,
-      rolePending,
-    },
+    token: generateToken(user),
+    user: publicUser(user, { role: rolePending ? null : user.role, rolePending }),
   });
-});
+}));
 
 /**
- * POST /auth/logout
- * Logout — stateless (client removes token)
+ * POST /auth/register  (legacy one-shot sign-up with role)
+ */
+router.post('/register', validate(registerSchema), asyncHandler(async (req, res) => {
+  const { role, username, password, display_name } = req.body;
+  const dbRole = { organizer: 'admin', player: 'team_leader' }[role];
+  if (!dbRole) return res.status(400).json({ error: "role must be 'organizer' or 'player'." });
+
+  const uname = String(username).trim();
+  if (await users.findByUsername(uname)) {
+    return res.status(409).json({ error: 'That username is already taken.' });
+  }
+
+  const passwordHash = bcrypt.hashSync(password, bcrypt.genSaltSync(10));
+  const user = await users.create({
+    username: uname,
+    password_hash: passwordHash,
+    role: dbRole,
+    role_selected: true,
+    display_name: String(display_name || uname).trim(),
+  });
+
+  res.status(201).json({ message: 'Account created.', token: generateToken(user), user: publicUser(user, { rolePending: false }) });
+}));
+
+/**
+ * POST /auth/admin/login  (legacy)
+ */
+router.post('/admin/login', asyncHandler(async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Username and password are required.' });
+
+  const user = await users.findByUsernameAndRole(username, 'admin');
+  if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+    return res.status(401).json({ error: 'Invalid admin credentials.' });
+  }
+  res.json({ message: 'Admin login successful.', token: generateToken(user), user: publicUser(user) });
+}));
+
+/**
+ * POST /auth/leader/login  (legacy)
+ */
+router.post('/leader/login', asyncHandler(async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Username and password are required.' });
+
+  const user = await users.findByUsernameAndRole(username, 'team_leader');
+  if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+    return res.status(401).json({ error: 'Invalid team leader credentials.' });
+  }
+  res.json({ message: 'Team Leader login successful.', token: generateToken(user), user: publicUser(user) });
+}));
+
+/**
+ * POST /auth/admin/register  (legacy organizer sign-up)
+ */
+router.post('/admin/register', asyncHandler(async (req, res) => {
+  const { username, password, display_name } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Username and password are required.' });
+  if (String(username).trim().length < 3) return res.status(400).json({ error: 'Username must be at least 3 characters.' });
+  if (String(password).length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+
+  const uname = String(username).trim();
+  if (await users.findByUsername(uname)) return res.status(409).json({ error: 'That username is already taken.' });
+
+  const passwordHash = bcrypt.hashSync(password, bcrypt.genSaltSync(10));
+  const user = await users.create({
+    username: uname, password_hash: passwordHash, role: 'admin', role_selected: true, display_name: display_name || uname,
+  });
+  res.status(201).json({ message: 'Organizer account created.', token: generateToken(user), user: publicUser(user) });
+}));
+
+/**
+ * POST /auth/logout — stateless (client removes token)
  */
 router.post('/logout', (req, res) => {
   res.json({ message: 'Logged out successfully.' });

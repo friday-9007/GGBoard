@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# Prisma (generated client output)
+generated/
+
 # Environments & Secret credentials
 .env
 .env*.local

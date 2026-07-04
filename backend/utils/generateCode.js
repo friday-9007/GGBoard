@@ -1,15 +1,12 @@
 /**
- * Unique Team Code Generator
- * Generates a random alphanumeric code (6-8 characters) for team join codes.
+ * Unique Team Code Generator (Prisma / Postgres).
+ * Generates a random alphanumeric join code that doesn't already exist.
  */
 
-const { getDb } = require('../config/db');
+const { prisma } = require('../config/prisma');
 
-/**
- * Generate a random alphanumeric string of the given length.
- */
 function randomCode(length = 6) {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Removed I, O, 0, 1 to avoid confusion
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no I, O, 0, 1 (avoids confusion)
   let code = '';
   for (let i = 0; i < length; i++) {
     code += chars.charAt(Math.floor(Math.random() * chars.length));
@@ -17,27 +14,13 @@ function randomCode(length = 6) {
   return code;
 }
 
-/**
- * Generate a unique team code that doesn't already exist in the database.
- * Retries up to maxRetries times to ensure uniqueness.
- */
-function generateUniqueCode(length = 6, maxRetries = 10) {
-  const db = getDb();
-  const checkStmt = db.prepare('SELECT id FROM teams WHERE unique_code = ?');
-
+async function generateUniqueCode(length = 6, maxRetries = 10) {
   for (let i = 0; i < maxRetries; i++) {
     const code = randomCode(length);
-    const existing = checkStmt.get(code);
-    if (!existing) {
-      return code;
-    }
+    const existing = await prisma.team.findUnique({ where: { unique_code: code }, select: { id: true } });
+    if (!existing) return code;
   }
-
-  // If we exhausted retries, try with a longer code
-  if (length < 8) {
-    return generateUniqueCode(length + 1, maxRetries);
-  }
-
+  if (length < 8) return generateUniqueCode(length + 1, maxRetries);
   throw new Error('Failed to generate a unique team code after maximum retries.');
 }
 

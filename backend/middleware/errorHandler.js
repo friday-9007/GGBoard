@@ -22,19 +22,15 @@ function errorHandler(err, req, res, next) {
     });
   }
 
-  // SQLite constraint errors
-  if (err.message && err.message.includes('UNIQUE constraint failed')) {
-    return res.status(409).json({
-      error: 'Conflict',
-      message: 'A record with this value already exists.'
-    });
+  // Prisma known request errors
+  if (err.code === 'P2002') {
+    return res.status(409).json({ error: 'Conflict', message: 'A record with this value already exists.' });
   }
-
-  if (err.message && err.message.includes('FOREIGN KEY constraint failed')) {
-    return res.status(400).json({
-      error: 'Bad Request',
-      message: 'Referenced record does not exist.'
-    });
+  if (err.code === 'P2003') {
+    return res.status(400).json({ error: 'Bad Request', message: 'Referenced record does not exist.' });
+  }
+  if (err.code === 'P2025') {
+    return res.status(404).json({ error: 'Not Found', message: 'Record not found.' });
   }
 
   // Default server error

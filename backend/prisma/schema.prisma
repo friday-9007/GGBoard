@@ -1,0 +1,120 @@
+// ggBoard — Prisma schema (Prisma 6, classic client).
+// Field names are snake_case to match the Postgres columns AND the existing JSON
+// API contract, so route responses stay identical and the frontend is unchanged.
+// The DB is the source of truth (schema managed via Supabase migrations).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL") // Supabase transaction pooler (runtime)
+  directUrl = env("DIRECT_URL") // direct connection (CLI migrations, if ever used)
+}
+
+model User {
+  id            Int      @id @default(autoincrement())
+  username      String   @unique
+  password_hash String
+  role          String
+  role_selected Boolean  @default(true)
+  display_name  String?
+  team_id       Int? // soft link (no FK), app-maintained
+  created_at    DateTime @default(now())
+
+  organized_games Game[]       @relation("GameOrganizer")
+  led_teams       Team[]       @relation("TeamLeader")
+  player_profiles Player[]     @relation("PlayerAccount")
+  uploads         Submission[] @relation("SubmissionUploader")
+  reviews         Submission[] @relation("SubmissionReviewer")
+
+  @@map("users")
+}
+
+model Game {
+  id              Int      @id @default(autoincrement())
+  game_title      String
+  tournament_name String
+  status          String   @default("active")
+  num_rounds      Int      @default(3)
+  organizer_id    Int?
+  created_at      DateTime @default(now())
+
+  organizer   User?        @relation("GameOrganizer", fields: [organizer_id], references: [id], onDelete: Cascade)
+  teams       Team[]
+  scores      Score[]
+  submissions Submission[]
+
+  @@map("games")
+}
+
+model Team {
+  id          Int      @id @default(autoincrement())
+  team_name   String
+  unique_code String   @unique
+  game_id     Int
+  leader_id   Int?
+  created_at  DateTime @default(now())
+
+  game        Game         @relation(fields: [game_id], references: [id], onDelete: Cascade)
+  leader      User?        @relation("TeamLeader", fields: [leader_id], references: [id], onDelete: SetNull)
+  players     Player[]
+  scores      Score[]
+  submissions Submission[]
+
+  @@map("teams")
+}
+
+model Player {
+  id           Int      @id @default(autoincrement())
+  full_name    String
+  in_game_name String
+  email        String?
+  phone        String?
+  team_id      Int
+  user_id      Int?
+  created_at   DateTime @default(now())
+
+  team Team  @relation(fields: [team_id], references: [id], onDelete: Cascade)
+  user User? @relation("PlayerAccount", fields: [user_id], references: [id], onDelete: SetNull)
+
+  @@map("players")
+}
+
+model Score {
+  id           Int      @id @default(autoincrement())
+  team_id      Int
+  game_id      Int
+  round_scores Json     @default(dbgenerated("'[]'::jsonb"))
+  total_score  Int      @default(0)
+  updated_at   DateTime @default(now())
+
+  team Team @relation(fields: [team_id], references: [id], onDelete: Cascade)
+  game Game @relation(fields: [game_id], references: [id], onDelete: Cascade)
+
+  @@unique([team_id, game_id])
+  @@map("scores")
+}
+
+model Submission {
+  id           Int       @id @default(autoincrement())
+  game_id      Int?
+  team_id      Int?
+  user_id      Int?
+  kind         String
+  purpose      String    @default("gameplay_verification")
+  storage_path String
+  status       String    @default("pending")
+  reviewed_by  Int?
+  note         String?
+  created_at   DateTime  @default(now())
+  reviewed_at  DateTime?
+
+  game     Game? @relation(fields: [game_id], references: [id], onDelete: Cascade)
+  team     Team? @relation(fields: [team_id], references: [id], onDelete: Cascade)
+  uploader User? @relation("SubmissionUploader", fields: [user_id], references: [id], onDelete: SetNull)
+  reviewer User? @relation("SubmissionReviewer", fields: [reviewed_by], references: [id], onDelete: SetNull)
+
+  @@map("submissions")
+}

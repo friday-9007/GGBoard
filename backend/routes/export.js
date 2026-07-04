@@ -1,61 +1,87 @@
 /**
- * Export Routes
- * POST /export — Export data as CSV (admin only)
+ * Export Routes (Prisma / Supabase)
+ * POST /export — CSV export (players | scores | combined), scoped to the organizer.
  */
 
 const express = require('express');
 const router = express.Router();
-const { getDb } = require('../config/db');
+const { prisma } = require('../repositories');
 const { requireAdmin } = require('../middleware/auth');
+const asyncHandler = require('../utils/asyncHandler');
 
-router.post('/', requireAdmin, (req, res) => {
+router.post('/', requireAdmin, asyncHandler(async (req, res) => {
   const { data_type, fields, game_id } = req.body;
-  // data_type: 'players' | 'scores' | 'combined'
-  // fields: array of field names to include
-  // game_id: optional filter
-
   if (!data_type) {
     return res.status(400).json({ error: 'data_type is required (players, scores, combined).' });
   }
 
-  const db = getDb();
+  const me = req.user.id;
+  const gid = game_id ? Number(game_id) : null;
   let rows = [];
   let headers = [];
 
   if (data_type === 'players') {
-    let query = `SELECT p.full_name, p.in_game_name, p.email, p.phone, t.team_name, g.game_title, g.tournament_name
-      FROM players p LEFT JOIN teams t ON t.id = p.team_id LEFT JOIN games g ON g.id = t.game_id WHERE g.organizer_id = ?`;
-    const params = [req.user.id];
-    if (game_id) { query += ' AND t.game_id = ?'; params.push(game_id); }
-    rows = db.prepare(query).all(...params);
+    const teamWhere = { game: { organizer_id: me } };
+    if (gid) teamWhere.game_id = gid;
+    const found = await prisma.player.findMany({
+      where: { team: teamWhere },
+      include: { team: { select: { team_name: true, game: { select: { game_title: true, tournament_name: true } } } } },
+      orderBy: { created_at: 'desc' },
+    });
+    rows = found.map((p) => ({
+      full_name: p.full_name, in_game_name: p.in_game_name, email: p.email, phone: p.phone,
+      team_name: p.team?.team_name ?? null, game_title: p.team?.game?.game_title ?? null,
+      tournament_name: p.team?.game?.tournament_name ?? null,
+    }));
     headers = fields || ['team_name', 'full_name', 'in_game_name', 'email', 'phone', 'game_title'];
   } else if (data_type === 'scores') {
-    let query = `SELECT t.team_name, s.round_scores, s.total_score, g.game_title, g.tournament_name
-      FROM scores s LEFT JOIN teams t ON t.id = s.team_id LEFT JOIN games g ON g.id = s.game_id WHERE g.organizer_id = ?`;
-    const params = [req.user.id];
-    if (game_id) { query += ' AND s.game_id = ?'; params.push(game_id); }
-    query += ' ORDER BY s.total_score DESC';
-    rows = db.prepare(query).all(...params);
+    const where = { game: { organizer_id: me } };
+    if (gid) where.game_id = gid;
+    const found = await prisma.score.findMany({
+      where,
+      orderBy: { total_score: 'desc' },
+      include: { team: { select: { team_name: true } }, game: { select: { game_title: true, tournament_name: true } } },
+    });
+    rows = found.map((s) => ({
+      team_name: s.team?.team_name ?? null, round_scores: JSON.stringify(s.round_scores ?? []),
+      total_score: s.total_score, game_title: s.game?.game_title ?? null, tournament_name: s.game?.tournament_name ?? null,
+    }));
     headers = fields || ['team_name', 'round_scores', 'total_score', 'game_title'];
   } else if (data_type === 'combined') {
-    let query = `SELECT t.team_name, p.full_name, p.in_game_name, s.round_scores, s.total_score, g.game_title
-      FROM players p LEFT JOIN teams t ON t.id = p.team_id LEFT JOIN scores s ON s.team_id = t.id AND s.game_id = t.game_id
-      LEFT JOIN games g ON g.id = t.game_id WHERE g.organizer_id = ?`;
-    const params = [req.user.id];
-    if (game_id) { query += ' AND t.game_id = ?'; params.push(game_id); }
-    rows = db.prepare(query).all(...params);
+    const teamWhere = { game: { organizer_id: me } };
+    if (gid) teamWhere.game_id = gid;
+    const found = await prisma.player.findMany({
+      where: { team: teamWhere },
+      include: {
+        team: {
+          select: {
+            team_name: true,
+            game: { select: { game_title: true } },
+            scores: { select: { round_scores: true, total_score: true } },
+          },
+        },
+      },
+      orderBy: { created_at: 'desc' },
+    });
+    rows = found.map((p) => {
+      const score = p.team?.scores?.[0] || {};
+      return {
+        team_name: p.team?.team_name ?? null, full_name: p.full_name, in_game_name: p.in_game_name,
+        round_scores: JSON.stringify(score.round_scores ?? []), total_score: score.total_score ?? 0,
+        game_title: p.team?.game?.game_title ?? null,
+      };
+    });
     headers = fields || ['team_name', 'full_name', 'in_game_name', 'round_scores', 'total_score', 'game_title'];
   } else {
     return res.status(400).json({ error: 'Invalid data_type.' });
   }
 
-  // Filter to requested fields only
-  const filteredHeaders = headers.filter(h => rows.length === 0 || rows[0].hasOwnProperty(h));
+  // Only include requested fields that exist on the rows
+  const filteredHeaders = headers.filter((h) => rows.length === 0 || Object.prototype.hasOwnProperty.call(rows[0], h));
 
-  // Build CSV
   let csv = filteredHeaders.join(',') + '\n';
-  rows.forEach(row => {
-    const line = filteredHeaders.map(h => {
+  rows.forEach((row) => {
+    const line = filteredHeaders.map((h) => {
       let val = row[h] != null ? String(row[h]) : '';
       if (val.includes(',') || val.includes('"') || val.includes('\n')) {
         val = '"' + val.replace(/"/g, '""') + '"';
@@ -68,6 +94,6 @@ router.post('/', requireAdmin, (req, res) => {
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', `attachment; filename="ggboard_export_${data_type}_${Date.now()}.csv"`);
   res.send(csv);
-});
+}));
 
 module.exports = router;
