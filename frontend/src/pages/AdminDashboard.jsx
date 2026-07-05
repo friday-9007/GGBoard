@@ -484,14 +484,14 @@ function TeamsTab({ showToast }) {
     navigator.clipboard.writeText(text);
   };
 
-  const deleteTeam = async (id) => {
-    if (!window.confirm('Delete this team and remove all associated roster players?')) return;
+  const unregisterTeam = async (t) => {
+    if (!window.confirm(`Remove "${t.team_name}" from ${t.tournament_name}?`)) return;
     try {
-      await api.delete(`/teams/${id}`);
-      showToast('Team deleted.');
+      await api.delete(`/teams/${t.team_id}/registration/${t.game_id}`);
+      showToast('Team removed from the tournament.');
       fetchTeams();
     } catch (err) {
-      showToast('Failed to delete team.', 'error');
+      showToast('Failed to remove team.', 'error');
     }
   };
 
@@ -499,8 +499,8 @@ function TeamsTab({ showToast }) {
     <div style={{ animation: 'fadeIn var(--transition-base)' }}>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h1 className="page-title">Manage Registered Teams</h1>
-          <p className="page-subtitle">Add teams manually, view join codes, or remove teams</p>
+          <h1 className="page-title">Registered Teams</h1>
+          <p className="page-subtitle">Teams registered across your tournaments — one row per registration</p>
         </div>
         <button id="btn-add-team-modal" className="btn btn-primary btn-sm" onClick={() => { setSuccess(null); setShowModal(true); }}>➕ Add Team Manually</button>
       </div>
@@ -529,7 +529,7 @@ function TeamsTab({ showToast }) {
               </thead>
               <tbody>
                 {teams.map(t => (
-                  <tr key={t.id}>
+                  <tr key={t.registration_id}>
                     <td style={{ fontWeight: 600 }}>{t.team_name}</td>
                     <td>
                       <code style={{ color: 'var(--neon-cyan)', fontFamily: 'var(--font-heading)', letterSpacing: '1px' }}>
@@ -548,7 +548,7 @@ function TeamsTab({ showToast }) {
                       <span className="badge badge-active">{t.player_count}</span>
                     </td>
                     <td style={{ textAlign: 'right' }}>
-                      <button className="btn btn-danger btn-sm" style={{ padding: '0.25rem 0.5rem' }} onClick={() => deleteTeam(t.id)}>🗑️</button>
+                      <button className="btn btn-danger btn-sm" style={{ padding: '0.25rem 0.5rem' }} title="Remove from this tournament" onClick={() => unregisterTeam(t)}>🗑️</button>
                     </td>
                   </tr>
                 ))}
@@ -738,8 +738,8 @@ function PlayersTab({ showToast }) {
               onChange={(e) => setFilterTeam(e.target.value)}
             >
               <option value="">All Teams</option>
-              {teams.map(t => (
-                <option key={t.id} value={t.id}>{t.team_name} ({t.game_title})</option>
+              {Array.from(new Map(teams.map(t => [t.team_id, t])).values()).map(t => (
+                <option key={t.team_id} value={t.team_id}>{t.team_name} ({t.game})</option>
               ))}
             </select>
           </div>
@@ -784,7 +784,7 @@ function PlayersTab({ showToast }) {
                     </td>
                     <td>
                       <div style={{ fontWeight: 500 }}>{p.team_name}</div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{p.tournament_name} ({p.game_title})</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{p.game_title}</div>
                     </td>
                     <td style={{ textAlign: 'right' }}>
                       <button className="btn btn-danger btn-sm" style={{ padding: '0.25rem 0.5rem' }} onClick={() => deletePlayer(p.id)}>🗑️</button>
@@ -823,8 +823,8 @@ function PlayersTab({ showToast }) {
                 <label className="form-label">Team Squad</label>
                 <select name="team_id" className="form-select" value={formData.team_id} onChange={handleChange} required>
                   <option value="">Select a team...</option>
-                  {teams.map(t => (
-                    <option key={t.id} value={t.id}>{t.team_name} — {t.tournament_name}</option>
+                  {Array.from(new Map(teams.map(t => [t.team_id, t])).values()).map(t => (
+                    <option key={t.team_id} value={t.team_id}>{t.team_name} — {t.game}</option>
                   ))}
                 </select>
               </div>
