@@ -156,18 +156,24 @@
 }
 
 .hero-title {
-  font-size: 3.2rem;
+  font-size: clamp(2.2rem, 6vw, 4rem);
   font-weight: 900;
-  line-height: 1.1;
+  line-height: 1.08;
   letter-spacing: 1px;
   margin-bottom: var(--space-lg);
 }
 
 .hero-accent {
-  background: var(--gradient-primary);
+  background: linear-gradient(120deg, var(--neon-blue), var(--neon-purple), var(--neon-cyan), var(--neon-blue));
+  background-size: 300% auto;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  animation: shimmerText 6s linear infinite;
+  filter: drop-shadow(0 0 24px rgba(0, 212, 255, 0.22));
+}
+@keyframes shimmerText {
+  to { background-position: 300% center; }
 }
 
 .hero-desc {
@@ -218,29 +224,47 @@
 }
 
 .feature-card {
-  background: var(--bg-card);
+  position: relative;
+  background-color: var(--bg-card);
+  background-image: var(--surface-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   padding: var(--space-xl);
+  box-shadow: var(--shadow-md);
   transition: all var(--transition-base);
+  overflow: hidden;
+}
+.feature-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.16), transparent 42%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0.7;
 }
 .feature-card:hover {
   border-color: var(--border-accent);
-  background: var(--bg-card-hover);
   transform: translateY(-4px);
-  box-shadow: var(--glow-blue);
+  box-shadow: var(--glow-blue), var(--shadow-lg);
 }
 
 .feature-icon {
-  font-size: 1.8rem;
+  font-size: 1.7rem;
   width: 56px;
   height: 56px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 212, 255, 0.08);
+  background: linear-gradient(150deg, rgba(0, 212, 255, 0.18), rgba(168, 85, 247, 0.14));
+  border: 1px solid var(--border-accent);
   border-radius: var(--radius-md);
   margin-bottom: var(--space-md);
+  box-shadow: inset 0 0 20px rgba(0, 212, 255, 0.12);
 }
 
 .feature-card h3 {

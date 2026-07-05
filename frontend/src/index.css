@@ -36,14 +36,25 @@
   --text-accent: #00d4ff;
 
   /* Border colors */
-  --border-color: rgba(255, 255, 255, 0.08);
-  --border-accent: rgba(0, 212, 255, 0.3);
+  --border-color: rgba(255, 255, 255, 0.07);
+  --border-accent: rgba(0, 212, 255, 0.35);
+  --border-strong: rgba(255, 255, 255, 0.14);
 
   /* Glow effects */
   --glow-blue: 0 0 20px rgba(0, 212, 255, 0.3), 0 0 60px rgba(0, 212, 255, 0.1);
   --glow-purple: 0 0 20px rgba(168, 85, 247, 0.3), 0 0 60px rgba(168, 85, 247, 0.1);
   --glow-cyan: 0 0 20px rgba(6, 255, 210, 0.3);
   --glow-pink: 0 0 20px rgba(255, 45, 149, 0.3);
+
+  /* Elevation (layered depth) */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 6px 20px -6px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 18px 50px -12px rgba(0, 0, 0, 0.65);
+  --shadow-xl: 0 30px 80px -20px rgba(0, 0, 0, 0.78);
+
+  /* Surfaces + focus ring */
+  --surface-card: linear-gradient(160deg, rgba(255, 255, 255, 0.045) 0%, rgba(255, 255, 255, 0.012) 55%);
+  --ring: 0 0 0 3px rgba(0, 212, 255, 0.28);
 
   /* Typography */
   --font-heading: 'Orbitron', sans-serif;
@@ -88,13 +99,22 @@ html {
 
 body {
   font-family: var(--font-body);
-  background-color: var(--bg-primary);
   color: var(--text-primary);
   line-height: 1.6;
   min-height: 100vh;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Ambient depth: layered neon glows + a faint grid, fixed while scrolling */
+  background-color: var(--bg-primary);
+  background-image:
+    radial-gradient(55rem 55rem at 10% -10%, rgba(0, 212, 255, 0.10), transparent 60%),
+    radial-gradient(50rem 50rem at 100% 0%, rgba(168, 85, 247, 0.10), transparent 55%),
+    radial-gradient(45rem 45rem at 50% 118%, rgba(255, 45, 149, 0.06), transparent 60%),
+    linear-gradient(rgba(255, 255, 255, 0.014) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.014) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 100% 100%, 46px 46px, 46px 46px;
+  background-attachment: fixed;
 }
 
 #root {
@@ -130,11 +150,12 @@ img {
   background: var(--bg-secondary);
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--bg-card);
-  border-radius: 4px;
+  background: linear-gradient(var(--neon-blue), var(--neon-purple));
+  border-radius: 999px;
+  border: 2px solid var(--bg-secondary);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--neon-blue);
+  background: linear-gradient(var(--neon-cyan), var(--neon-blue));
 }
 
 /* ─── Buttons ─── */
@@ -168,14 +189,16 @@ img {
 }
 
 .btn-secondary {
-  background: transparent;
+  background: rgba(255, 255, 255, 0.03);
   color: var(--neon-blue);
   border: 1px solid var(--border-accent);
+  backdrop-filter: blur(6px);
 }
 .btn-secondary:hover {
-  background: rgba(0, 212, 255, 0.1);
+  background: rgba(0, 212, 255, 0.12);
   border-color: var(--neon-blue);
   box-shadow: var(--glow-blue);
+  transform: translateY(-2px);
 }
 
 .btn-danger {
@@ -231,9 +254,14 @@ img {
   outline: none;
 }
 
+.form-input:hover, .form-select:hover {
+  border-color: var(--border-strong);
+}
+
 .form-input:focus, .form-select:focus {
   border-color: var(--neon-blue);
-  box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.1);
+  box-shadow: var(--ring);
+  background: rgba(0, 212, 255, 0.04);
 }
 
 .form-input::placeholder {
@@ -247,21 +275,39 @@ img {
 
 /* ─── Cards ─── */
 .card {
-  background: var(--bg-card);
+  position: relative;
+  background-color: var(--bg-card);
+  background-image: var(--surface-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   padding: var(--space-xl);
-  transition: all var(--transition-base);
+  box-shadow: var(--shadow-md);
+  transition: border-color var(--transition-base), box-shadow var(--transition-base), transform var(--transition-base);
+}
+
+/* Subtle top-left gradient hairline for a premium, lit edge */
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.16), transparent 42%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0.7;
 }
 
 .card:hover {
   border-color: var(--border-accent);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-lg);
 }
 
 .card-glow {
   border-color: var(--border-accent);
-  box-shadow: var(--glow-blue);
+  box-shadow: var(--glow-blue), var(--shadow-lg);
 }
 
 /* ─── Tables ─── */
@@ -419,18 +465,35 @@ img {
 }
 
 .stat-card {
-  background: var(--bg-card);
+  position: relative;
+  background-color: var(--bg-card);
+  background-image: var(--surface-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   padding: var(--space-lg);
   text-align: center;
-  transition: all var(--transition-base);
+  box-shadow: var(--shadow-md);
+  transition: border-color var(--transition-base), transform var(--transition-base), box-shadow var(--transition-base);
+  overflow: hidden;
+}
+
+/* Accent bar that lights up on hover */
+.stat-card::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 3px;
+  background: var(--gradient-primary);
+  opacity: 0;
+  transition: opacity var(--transition-base);
 }
 
 .stat-card:hover {
   border-color: var(--border-accent);
-  transform: translateY(-2px);
+  transform: translateY(-3px);
+  box-shadow: var(--glow-blue), var(--shadow-lg);
 }
+.stat-card:hover::after { opacity: 1; }
 
 .stat-value {
   font-family: var(--font-heading);
@@ -560,5 +623,54 @@ img {
 @media (max-width: 480px) {
   .stats-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* ─── Polish layer ─── */
+::selection {
+  background: rgba(0, 212, 255, 0.28);
+  color: #fff;
+}
+
+/* Keyboard focus ring everywhere (accessible + tidy) */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+/* Tactile press feedback */
+.btn:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+
+/* Sheen sweep on filled buttons */
+.btn-primary, .btn-danger, .btn-success { position: relative; isolation: isolate; }
+.btn-primary::before, .btn-danger::before, .btn-success::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, 0.35) 48%, transparent 66%);
+  transform: translateX(-130%);
+  transition: transform 0.6s ease;
+}
+.btn-primary:hover::before, .btn-danger:hover::before, .btn-success:hover::before {
+  transform: translateX(130%);
+}
+
+/* Gentle entrance for cards/sections */
+.card, .stat-card { animation: riseIn 0.4s ease both; }
+@keyframes riseIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Respect users who prefer less motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
