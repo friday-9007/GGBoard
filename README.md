@@ -1,6 +1,6 @@
 GGBoard Checklist:-
 
-[]- Initial start
+[x]- Initial start
 
 []- DB
 
@@ -14,7 +14,7 @@ GGBoard Checklist:-
 
 []- Dashboard for a player{main dashboard-> info of ongoing tournaments}
 
-[]- Dashboard Nav Bar {tournament listing, per game joining and creating, profile button if a person is joining}
+[x]- Dashboard Nav Bar {tournament listing, per game joining and creating, profile button if a person is joining}
 
 
 []- 
