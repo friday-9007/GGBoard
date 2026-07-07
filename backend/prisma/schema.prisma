@@ -31,7 +31,6 @@ model User {
   looking_for_team Boolean   @default(false)
   preferred_role   String?
   bio              String?
-  team_id          Int? // soft link (no FK), app-maintained
   created_at       DateTime  @default(now())
 
   organized_games Game[]       @relation("GameOrganizer")

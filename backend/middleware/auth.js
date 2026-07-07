@@ -98,12 +98,13 @@ function requireAdminOrLeader(req, res, next) {
  * Generate a JWT token for a user
  */
 function generateToken(user) {
+  // Team membership is no longer a single value on the token — a user can be on
+  // many teams (one per game); membership is queried from the DB when needed.
   return jwt.sign(
     {
       id: user.id,
       username: user.username,
       role: user.role,
-      teamId: user.team_id || null,
       // undefined for pre-existing tokens; guards treat only explicit false as pending
       roleSelected: user.role_selected === undefined ? undefined : !!user.role_selected
     },

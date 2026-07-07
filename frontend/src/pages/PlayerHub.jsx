@@ -107,42 +107,32 @@ export default function PlayerHub() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState('overview'); // overview | team | standings
-  const [team, setTeam] = useState(null);
-  const [players, setPlayers] = useState([]);
-  const [events, setEvents] = useState([]); // tournaments this team is registered in (with standings)
+  const [activeTab, setActiveTab] = useState('overview'); // overview | team | standings | profile
+  const [myTeams, setMyTeams] = useState([]); // one team per game, each with roster + events
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
-  const [preselectGame, setPreselectGame] = useState(null); // game title to preselect when creating a team
+  const [preselectGame, setPreselectGame] = useState(null); // game to preselect when creating a team
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   };
 
-  const loadTeam = useCallback(async () => {
-    if (!user?.teamId) { setTeam(null); setPlayers([]); setEvents([]); setLoading(false); return; }
+  const loadTeams = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get('/teams/my');
-      setTeam(res.data.team);
-      setPlayers(res.data.players || []);
-      try {
-        const ev = await api.get('/teams/my/events');
-        setEvents(ev.data.events || []);
-      } catch { setEvents([]); }
+      const res = await api.get('/teams/mine');
+      setMyTeams(res.data.teams || []);
     } catch {
-      showToast('Failed to load your team.', 'error');
+      showToast('Failed to load your teams.', 'error');
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user?.id]);
 
-  useEffect(() => { loadTeam(); }, [loadTeam]);
+  useEffect(() => { loadTeams(); }, [loadTeams]);
 
-  const isLeader = !!(team && user && team.leader_id === user.id);
-
-  // Teamless player hits "Register" on an event → send them to create a team (game preselected).
+  // "Register" on an event with no matching team → go create one (game preselected).
   const goCreateTeam = (game) => { setPreselectGame(game || null); setActiveTab('team'); };
 
   return (
@@ -169,7 +159,7 @@ export default function PlayerHub() {
 
         <nav style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-xs)', flexGrow: 1 }}>
           <NavButton active={activeTab === 'overview'} onClick={() => setActiveTab('overview')}>📊 Overview</NavButton>
-          <NavButton active={activeTab === 'team'} onClick={() => setActiveTab('team')}>🛡️ My Team</NavButton>
+          <NavButton active={activeTab === 'team'} onClick={() => setActiveTab('team')}>🛡️ My Teams</NavButton>
           <NavButton active={activeTab === 'standings'} onClick={() => setActiveTab('standings')}>🏆 Standings</NavButton>
           <NavButton active={activeTab === 'profile'} onClick={() => setActiveTab('profile')}>👤 Profile</NavButton>
         </nav>
@@ -190,13 +180,13 @@ export default function PlayerHub() {
         ) : (
           <>
             {activeTab === 'overview' && (
-              <OverviewTab user={user} team={team} players={players} events={events} setActiveTab={setActiveTab} onCreateTeam={goCreateTeam} reload={loadTeam} showToast={showToast} />
+              <OverviewTab user={user} myTeams={myTeams} setActiveTab={setActiveTab} onCreateTeam={goCreateTeam} reload={loadTeams} showToast={showToast} />
             )}
             {activeTab === 'team' && (
-              <MyTeamTab team={team} players={players} events={events} isLeader={isLeader} reload={loadTeam} showToast={showToast} preselectGame={preselectGame} setActiveTab={setActiveTab} />
+              <MyTeamsTab myTeams={myTeams} reload={loadTeams} showToast={showToast} preselectGame={preselectGame} clearPreselect={() => setPreselectGame(null)} setActiveTab={setActiveTab} />
             )}
             {activeTab === 'standings' && (
-              <StandingsTab team={team} events={events} setActiveTab={setActiveTab} />
+              <StandingsTab myTeams={myTeams} setActiveTab={setActiveTab} />
             )}
             {activeTab === 'profile' && (
               <ProfileTab showToast={showToast} />
@@ -215,9 +205,14 @@ function NavButton({ active, onClick, children }) {
       className="btn btn-secondary btn-sm"
       style={{
         justifyContent: 'flex-start',
-        background: active ? 'rgba(0, 212, 255, 0.08)' : 'transparent',
-        borderColor: active ? 'var(--neon-blue)' : 'transparent',
+        gap: '0.55rem',
+        border: '1px solid transparent',
+        borderLeft: `3px solid ${active ? 'var(--neon-blue)' : 'transparent'}`,
+        borderRadius: 'var(--radius-sm)',
+        background: active ? 'linear-gradient(90deg, rgba(0, 212, 255, 0.16), rgba(0, 212, 255, 0.02))' : 'transparent',
         color: active ? 'var(--neon-blue)' : 'var(--text-secondary)',
+        boxShadow: active ? 'inset 0 0 20px rgba(0, 212, 255, 0.08)' : 'none',
+        backdropFilter: 'none',
       }}
     >
       {children}
@@ -226,7 +221,7 @@ function NavButton({ active, onClick, children }) {
 }
 
 // ─── OVERVIEW ─────────────────────────────────────────
-function OverviewTab({ user, team, players, events, setActiveTab, onCreateTeam, reload, showToast }) {
+function OverviewTab({ user, myTeams, setActiveTab, onCreateTeam, reload, showToast }) {
   const [feed, setFeed] = useState({ ongoing: [], upcoming: [] });
   const [loadingEvents, setLoadingEvents] = useState(true);
   const [gate, setGate] = useState(null); // { ev } awaiting game-profile before registering
@@ -241,10 +236,14 @@ function OverviewTab({ user, team, players, events, setActiveTab, onCreateTeam, 
   };
   useEffect(() => { loadFeed(); }, []);
 
-  const registeredIds = new Set((events || []).map((e) => e.game_id));
+  const teamForGame = (title) => myTeams.find((t) => t.game.toLowerCase() === (title || '').toLowerCase()) || null;
+  const registeredIds = new Set(myTeams.flatMap((t) => (t.events || []).map((e) => e.game_id)));
+  const totalEvents = myTeams.reduce((n, t) => n + (t.events?.length || 0), 0);
 
   const doRegister = async (ev) => {
-    if (!team) { onCreateTeam(ev.game_title); return; } // teamless → go create a team for this game
+    const mt = teamForGame(ev.game_title);
+    if (!mt) { onCreateTeam(ev.game_title); return; }                 // no team for this game → create one
+    if (!mt.is_leader) { showToast('Only the team leader can register.', 'error'); return; }
     setBusy(true);
     try {
       await api.post('/teams/register', { game_id: ev.id });
@@ -254,6 +253,7 @@ function OverviewTab({ user, team, players, events, setActiveTab, onCreateTeam, 
     } catch (err) {
       const data = err.response?.data;
       if (data?.code === 'GAME_PROFILE_REQUIRED') setGate({ ev });
+      else if (data?.code === 'NO_TEAM_FOR_GAME') onCreateTeam(ev.game_title);
       else showToast(data?.error || 'Failed to register.', 'error');
     } finally {
       setBusy(false);
@@ -269,19 +269,19 @@ function OverviewTab({ user, team, players, events, setActiveTab, onCreateTeam, 
         <p className="page-subtitle">Your player command center</p>
       </div>
 
-      {team ? (
+      {myTeams.length > 0 ? (
         <div className="stats-grid">
           <div className="stat-card" onClick={() => setActiveTab('team')} style={{ cursor: 'pointer' }}>
-            <div className="stat-value" style={{ fontSize: '1.3rem' }}>{team.team_name}</div>
-            <div className="stat-label">{team.game} Team</div>
+            <div className="stat-value">{myTeams.length}</div>
+            <div className="stat-label">My Teams</div>
           </div>
           <div className="stat-card" onClick={() => setActiveTab('standings')} style={{ cursor: 'pointer' }}>
-            <div className="stat-value">{events.length}</div>
+            <div className="stat-value">{totalEvents}</div>
             <div className="stat-label">Events Registered</div>
           </div>
           <div className="stat-card" onClick={() => setActiveTab('team')} style={{ cursor: 'pointer' }}>
-            <div className="stat-value">{players.length}</div>
-            <div className="stat-label">Teammates</div>
+            <div className="stat-value" style={{ fontSize: '1rem', lineHeight: 1.5 }}>{myTeams.map((t) => t.game).join(' · ')}</div>
+            <div className="stat-label">Games</div>
           </div>
         </div>
       ) : (
@@ -289,9 +289,9 @@ function OverviewTab({ user, team, players, events, setActiveTab, onCreateTeam, 
           <div style={{ fontSize: '2rem', marginBottom: 'var(--space-xs)' }}>🎮</div>
           <h3 style={{ color: 'var(--neon-blue)', marginBottom: 'var(--space-xs)' }}>You're not on a team yet</h3>
           <p style={{ color: 'var(--text-secondary)', marginBottom: 'var(--space-md)' }}>
-            Create a team on <strong>My Team</strong> (anytime — no event needed), then register it for events below.
+            Create a team per game on <strong>My Teams</strong> (anytime — no event needed), then register it for events below.
           </p>
-          <button className="btn btn-primary btn-sm" onClick={() => setActiveTab('team')}>Go to My Team →</button>
+          <button className="btn btn-primary btn-sm" onClick={() => setActiveTab('team')}>Go to My Teams →</button>
         </div>
       )}
 
@@ -302,7 +302,7 @@ function OverviewTab({ user, team, players, events, setActiveTab, onCreateTeam, 
           <Link to="/scoreboard" className="btn btn-secondary btn-sm">📊 Full Scoreboard</Link>
         </div>
         <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: 'var(--space-lg)' }}>
-          {team ? <>Register your <strong>{team.game}</strong> team for events below.</> : 'Discover tournaments from all organisers.'}
+          Register a team into any event for a game you play.
         </p>
 
         {loadingEvents ? (
@@ -314,15 +314,15 @@ function OverviewTab({ user, team, players, events, setActiveTab, onCreateTeam, 
           </div>
         ) : (
           <>
-            <EventSection title="🔴 Ongoing" events={feed.ongoing} team={team} registeredIds={registeredIds} busy={busy} onAction={doRegister} />
-            <EventSection title="🗓️ Upcoming" events={feed.upcoming} team={team} registeredIds={registeredIds} busy={busy} onAction={doRegister} />
+            <EventSection title="🔴 Ongoing" events={feed.ongoing} teamForGame={teamForGame} registeredIds={registeredIds} busy={busy} onAction={doRegister} />
+            <EventSection title="🗓️ Upcoming" events={feed.upcoming} teamForGame={teamForGame} registeredIds={registeredIds} busy={busy} onAction={doRegister} />
           </>
         )}
       </div>
 
       {gate && (
         <GameGateModal
-          game={team.game}
+          game={gate.ev.game_title}
           showToast={showToast}
           onCancel={() => setGate(null)}
           onSaved={() => { const ev = gate.ev; setGate(null); doRegister(ev); }}
@@ -332,14 +332,14 @@ function OverviewTab({ user, team, players, events, setActiveTab, onCreateTeam, 
   );
 }
 
-function EventSection({ title, events, team, registeredIds, busy, onAction }) {
+function EventSection({ title, events, teamForGame, registeredIds, busy, onAction }) {
   if (!events || events.length === 0) return null;
   return (
     <section style={{ marginBottom: 'var(--space-xl)' }}>
       <h3 style={{ marginBottom: 'var(--space-md)', color: 'var(--text-secondary)' }}>{title} <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>({events.length})</span></h3>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 'var(--space-lg)' }}>
         {events.map((ev) => (
-          <EventCard key={ev.id} ev={ev} team={team} registered={registeredIds.has(ev.id)} busy={busy} onAction={onAction} />
+          <EventCard key={ev.id} ev={ev} team={teamForGame(ev.game_title)} registered={registeredIds.has(ev.id)} busy={busy} onAction={onAction} />
         ))}
       </div>
     </section>
@@ -357,16 +357,16 @@ function EventCard({ ev, team, registered, busy, onAction }) {
   const start = fmtDate(ev.start_date);
   const deadline = fmtDate(ev.registration_deadline);
   const closed = ev.registration_open === false;
-  const hasTeam = !!team;
-  const sameGame = hasTeam && team.game && team.game.toLowerCase() === (ev.game_title || '').toLowerCase();
-  const canAct = !registered && !closed && (!hasTeam || sameGame);
+  const hasTeam = !!team;               // the caller's team for THIS game (or null)
+  const isLeader = hasTeam && team.is_leader;
+  const canAct = !registered && !closed && (!hasTeam || isLeader);
 
   let label;
   if (registered) label = '✓ Registered';
   else if (closed) label = 'Registration closed';
   else if (!hasTeam) label = '➕ Create a team to enter';
-  else if (sameGame) label = '➕ Register this team';
-  else label = `Only ${ev.game_title} teams`;
+  else if (isLeader) label = '➕ Register this team';
+  else label = 'Only your captain can register';
 
   return (
     <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
@@ -414,87 +414,119 @@ function EventCard({ ev, team, registered, busy, onAction }) {
   );
 }
 
-// ─── MY TEAM ──────────────────────────────────────────
-function MyTeamTab({ team, players, events, isLeader, reload, showToast, preselectGame, setActiveTab }) {
-  const { user, updateUser } = useAuth();
+// ─── MY TEAMS (one per game, with a game switcher) ────
+const chipStyle = (active) => ({
+  border: `1px solid ${active ? 'var(--neon-blue)' : 'var(--border-color)'}`,
+  background: active ? 'rgba(0, 212, 255, 0.12)' : 'rgba(255, 255, 255, 0.03)',
+  color: active ? 'var(--neon-blue)' : 'var(--text-secondary)',
+  borderRadius: 'var(--radius-md)',
+  padding: '0.45rem 0.9rem',
+  cursor: 'pointer',
+  fontWeight: 600,
+  fontSize: '0.82rem',
+  transition: 'all .15s',
+});
+
+function MyTeamsTab({ myTeams, reload, showToast, preselectGame, clearPreselect, setActiveTab }) {
+  const [selected, setSelected] = useState(() => (myTeams.length ? myTeams[0].id : 'new'));
+
+  // External request to create a team (from an Overview event card)
+  useEffect(() => { if (preselectGame) setSelected('new'); }, [preselectGame]);
+
+  // Keep selection valid as the list changes (after create/join/disband/leave)
+  useEffect(() => {
+    if (selected === '__newest__') {
+      setSelected(myTeams.length ? myTeams[myTeams.length - 1].id : 'new');
+    } else if (selected !== 'new' && !myTeams.some((t) => t.id === selected)) {
+      setSelected(myTeams.length ? myTeams[myTeams.length - 1].id : 'new');
+    }
+  }, [myTeams, selected]);
+
+  const current = myTeams.find((t) => t.id === selected) || null;
+  const showCreate = selected === 'new' || myTeams.length === 0;
+  const onDone = () => { clearPreselect?.(); setSelected('__newest__'); };
+
+  return (
+    <div style={{ animation: 'fadeIn var(--transition-base)' }}>
+      <div className="page-header">
+        <h1 className="page-title">My Teams</h1>
+        <p className="page-subtitle">One team per game — switch between them below.</p>
+      </div>
+
+      {/* Game switcher chips */}
+      <div style={{ display: 'flex', gap: 'var(--space-sm)', flexWrap: 'wrap', marginBottom: 'var(--space-lg)' }}>
+        {myTeams.map((t) => (
+          <button key={t.id} type="button" onClick={() => setSelected(t.id)} style={chipStyle(selected === t.id)}>
+            {t.game} · {t.team_name}
+          </button>
+        ))}
+        <button type="button" onClick={() => { clearPreselect?.(); setSelected('new'); }} style={chipStyle(showCreate)}>
+          ➕ New team
+        </button>
+      </div>
+
+      {showCreate
+        ? <CreateJoinPanel reload={reload} showToast={showToast} preselectGame={preselectGame} existingGames={myTeams.map((t) => t.game)} onDone={onDone} />
+        : current
+          ? <TeamDetail team={current} reload={reload} showToast={showToast} setActiveTab={setActiveTab} />
+          : null}
+    </div>
+  );
+}
+
+// Detail view for a single team (roster + registered events + management)
+function TeamDetail({ team, reload, showToast, setActiveTab }) {
+  const { user } = useAuth();
   const [copied, setCopied] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [editPlayer, setEditPlayer] = useState(null);
 
+  const players = team.players || [];
+  const events = team.events || [];
+  const isLeader = !!team.is_leader;
   const myRow = players.find((p) => p.user_id === user?.id) || null;
 
-  const copyCode = () => {
-    navigator.clipboard.writeText(team.unique_code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
+  const copyCode = () => { navigator.clipboard.writeText(team.unique_code); setCopied(true); setTimeout(() => setCopied(false), 1500); };
 
   const handleRename = async (newName) => {
-    try {
-      await api.patch(`/teams/${team.id}`, { team_name: newName });
-      setRenameOpen(false);
-      showToast('Team name updated.');
-      reload();
-    } catch (err) {
-      showToast(err.response?.data?.error || 'Failed to rename team.', 'error');
-    }
+    try { await api.patch(`/teams/${team.id}`, { team_name: newName }); setRenameOpen(false); showToast('Team name updated.'); reload(); }
+    catch (err) { showToast(err.response?.data?.error || 'Failed to rename team.', 'error'); }
   };
-
   const handleSavePlayer = async (id, data) => {
-    try {
-      await api.patch(`/players/${id}`, data);
-      setEditPlayer(null);
-      showToast('Player updated.');
-      reload();
-    } catch (err) {
-      showToast(err.response?.data?.error || 'Failed to update player.', 'error');
-    }
+    try { await api.patch(`/players/${id}`, data); setEditPlayer(null); showToast('Player updated.'); reload(); }
+    catch (err) { showToast(err.response?.data?.error || 'Failed to update player.', 'error'); }
   };
-
   const handleRemove = async (p) => {
     if (!window.confirm(`Remove ${p.full_name} from the team?`)) return;
-    try {
-      await api.delete(`/players/${p.id}`);
-      showToast('Player removed.');
-      reload();
-    } catch (err) {
-      showToast(err.response?.data?.error || 'Failed to remove player.', 'error');
-    }
+    try { await api.delete(`/players/${p.id}`); showToast('Player removed.'); reload(); }
+    catch (err) { showToast(err.response?.data?.error || 'Failed to remove player.', 'error'); }
   };
-
   const handleLeave = async () => {
-    if (!myRow) return;
-    if (!window.confirm('Leave this team? You can join or create another afterwards.')) return;
-    try {
-      await api.delete(`/players/${myRow.id}`);
-      updateUser({ teamId: null }); // triggers a reload → back to Create/Join view
-      showToast('You left the team.');
-    } catch (err) {
-      showToast(err.response?.data?.error || 'Failed to leave team.', 'error');
-    }
+    if (!myRow || !window.confirm(`Leave ${team.team_name}?`)) return;
+    try { await api.delete(`/players/${myRow.id}`); showToast('You left the team.'); reload(); }
+    catch (err) { showToast(err.response?.data?.error || 'Failed to leave team.', 'error'); }
+  };
+  const handleDisband = async () => {
+    if (!window.confirm(`Disband ${team.team_name}? This deletes the team and all its registrations. This can't be undone.`)) return;
+    try { await api.delete(`/teams/${team.id}`); showToast('Team disbanded.'); reload(); }
+    catch (err) { showToast(err.response?.data?.error || 'Failed to disband team.', 'error'); }
   };
 
-  // ── No team: show Create / Join ──
-  if (!team) {
-    return <CreateJoinPanel reload={reload} showToast={showToast} preselectGame={preselectGame} />;
-  }
-
-  // ── Has team ──
   return (
-    <div style={{ animation: 'fadeIn var(--transition-base)' }}>
-      <div className="page-header">
-        <h1 className="page-title">My Team</h1>
-        <p className="page-subtitle">{team.game} team</p>
-      </div>
-
+    <div>
       <section className="card card-glow" style={{ marginBottom: 'var(--space-lg)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 'var(--space-md)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 'var(--space-md)', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', flexWrap: 'wrap' }}>
             <h2 style={{ color: 'var(--neon-blue)' }}>{team.team_name}</h2>
             <span className="badge badge-active" style={{ fontFamily: 'var(--font-heading)' }}>{team.game}</span>
             {isLeader && <span className="badge badge-active">Team Leader</span>}
           </div>
-          {isLeader && <button className="btn btn-secondary btn-sm" onClick={() => setRenameOpen(true)}>✏️ Rename</button>}
+          {isLeader && (
+            <div style={{ display: 'flex', gap: 'var(--space-sm)' }}>
+              <button className="btn btn-secondary btn-sm" onClick={() => setRenameOpen(true)}>✏️ Rename</button>
+              <button className="btn btn-danger btn-sm" onClick={handleDisband}>🗑️ Disband</button>
+            </div>
+          )}
         </div>
 
         <div style={{ marginTop: 'var(--space-lg)' }}>
@@ -511,10 +543,10 @@ function MyTeamTab({ team, players, events, isLeader, reload, showToast, presele
       {/* Registered events */}
       <section className="card" style={{ marginBottom: 'var(--space-lg)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-sm)' }}>
-          <h3 style={{ margin: 0 }}>Registered Events ({events?.length || 0})</h3>
+          <h3 style={{ margin: 0 }}>Registered Events ({events.length})</h3>
           <button className="btn btn-secondary btn-sm" onClick={() => setActiveTab('overview')}>➕ Register for an event</button>
         </div>
-        {(!events || events.length === 0) ? (
+        {events.length === 0 ? (
           <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
             Not registered for any events yet — head to <strong>Overview</strong> to enter {team.game} tournaments.
           </p>
@@ -536,6 +568,7 @@ function MyTeamTab({ team, players, events, isLeader, reload, showToast, presele
         )}
       </section>
 
+      {/* Roster */}
       <section className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-sm)' }}>
           <h3 style={{ margin: 0 }}>Roster ({players.length})</h3>
@@ -550,12 +583,7 @@ function MyTeamTab({ team, players, events, isLeader, reload, showToast, presele
           <div className="table-container">
             <table className="data-table">
               <thead>
-                <tr>
-                  <th>Player</th>
-                  <th>In-Game Name</th>
-                  <th>Contact</th>
-                  <th style={{ width: 140, textAlign: 'right' }}>Actions</th>
-                </tr>
+                <tr><th>Player</th><th>In-Game Name</th><th>Contact</th><th style={{ width: 140, textAlign: 'right' }}>Actions</th></tr>
               </thead>
               <tbody>
                 {players.map((p) => {
@@ -563,16 +591,9 @@ function MyTeamTab({ team, players, events, isLeader, reload, showToast, presele
                   const canEdit = isLeader || isMe;
                   return (
                     <tr key={p.id}>
-                      <td>
-                        <div style={{ fontWeight: 600 }}>
-                          {p.full_name} {isMe && <span style={{ fontSize: '0.7rem', color: 'var(--neon-cyan)' }}>(you)</span>}
-                        </div>
-                      </td>
+                      <td><div style={{ fontWeight: 600 }}>{p.full_name} {isMe && <span style={{ fontSize: '0.7rem', color: 'var(--neon-cyan)' }}>(you)</span>}</div></td>
                       <td><span className="badge badge-active" style={{ fontFamily: 'var(--font-heading)' }}>{p.in_game_name}</span></td>
-                      <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                        <div>{p.email || '—'}</div>
-                        <div>{p.phone || '—'}</div>
-                      </td>
+                      <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}><div>{p.email || '—'}</div><div>{p.phone || '—'}</div></td>
                       <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                         {canEdit && <button className="btn btn-secondary btn-sm" style={{ padding: '0.25rem 0.5rem', marginRight: 4 }} onClick={() => setEditPlayer(p)}>✏️</button>}
                         {isLeader && !isMe && <button className="btn btn-danger btn-sm" style={{ padding: '0.25rem 0.5rem' }} onClick={() => handleRemove(p)}>🗑️</button>}
@@ -585,12 +606,6 @@ function MyTeamTab({ team, players, events, isLeader, reload, showToast, presele
             </table>
           </div>
         )}
-
-        {isLeader && (
-          <p style={{ marginTop: 'var(--space-md)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            As team leader you can rename the team, manage the roster, and register for events from Overview.
-          </p>
-        )}
       </section>
 
       {renameOpen && <RenameModal current={team.team_name} onCancel={() => setRenameOpen(false)} onSave={handleRename} />}
@@ -599,30 +614,21 @@ function MyTeamTab({ team, players, events, isLeader, reload, showToast, presele
   );
 }
 
-// ─── CREATE / JOIN (shown in My Team when teamless) ───
-function CreateJoinPanel({ reload, showToast, preselectGame }) {
-  const { login } = useAuth();
+// ─── CREATE / JOIN a team (one per game) ───
+function CreateJoinPanel({ reload, showToast, preselectGame, existingGames = [], onDone }) {
   const [mode, setMode] = useState('create'); // create | join
 
   return (
-    <div style={{ animation: 'fadeIn var(--transition-base)' }}>
-      <div className="page-header">
-        <h1 className="page-title">My Team</h1>
-        <p className="page-subtitle">You're not on a team yet — create your own or join one with a code.</p>
+    <section className="card card-glow" style={{ maxWidth: 560 }}>
+      <div style={{ display: 'flex', gap: 'var(--space-xs)', marginBottom: 'var(--space-lg)', borderBottom: '1px solid var(--border-color)' }}>
+        <TabButton active={mode === 'create'} onClick={() => setMode('create')}>➕ Create a Team</TabButton>
+        <TabButton active={mode === 'join'} onClick={() => setMode('join')}>🤝 Join a Team</TabButton>
       </div>
 
-      <section className="card card-glow" style={{ maxWidth: 560 }}>
-        {/* Tabs */}
-        <div style={{ display: 'flex', gap: 'var(--space-xs)', marginBottom: 'var(--space-lg)', borderBottom: '1px solid var(--border-color)' }}>
-          <TabButton active={mode === 'create'} onClick={() => setMode('create')}>➕ Create a Team</TabButton>
-          <TabButton active={mode === 'join'} onClick={() => setMode('join')}>🤝 Join a Team</TabButton>
-        </div>
-
-        {mode === 'create'
-          ? <CreateTeamForm login={login} reload={reload} showToast={showToast} preselectGame={preselectGame} />
-          : <JoinTeamForm login={login} reload={reload} showToast={showToast} />}
-      </section>
-    </div>
+      {mode === 'create'
+        ? <CreateTeamForm reload={reload} showToast={showToast} preselectGame={preselectGame} existingGames={existingGames} onDone={onDone} />
+        : <JoinTeamForm reload={reload} showToast={showToast} onDone={onDone} />}
+    </section>
   );
 }
 
@@ -646,21 +652,24 @@ function TabButton({ active, onClick, children }) {
   );
 }
 
-function CreateTeamForm({ login, reload, showToast, preselectGame }) {
+function CreateTeamForm({ reload, showToast, preselectGame, existingGames = [], onDone }) {
   const [game, setGame] = useState(preselectGame || null);
   const [teamName, setTeamName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const taken = new Set(existingGames.map((g) => g.toLowerCase()));
+  const available = ESPORTS_GAMES.filter((g) => !taken.has(g.toLowerCase()));
 
   const submit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      const res = await api.post('/teams/create', { team_name: teamName, game });
-      if (res.data.token) login(res.data.user, res.data.token); // token now carries teamId
+      await api.post('/teams/create', { team_name: teamName, game });
       showToast('Team created! Register it for events from Overview.');
-      reload();
+      await reload();
+      onDone?.();
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to create team.');
       setLoading(false);
@@ -672,8 +681,11 @@ function CreateTeamForm({ login, reload, showToast, preselectGame }) {
     return (
       <div>
         <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: 'var(--space-md)' }}>Which game does your team play?</p>
+        {available.length === 0 ? (
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>You already have a team for every listed game. 🎉</p>
+        ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 'var(--space-sm)' }}>
-          {ESPORTS_GAMES.map((g) => (
+          {available.map((g) => (
             <button
               type="button"
               key={g}
@@ -690,6 +702,7 @@ function CreateTeamForm({ login, reload, showToast, preselectGame }) {
             </button>
           ))}
         </div>
+        )}
       </div>
     );
   }
@@ -768,7 +781,7 @@ function GameGateModal({ game, showToast, onCancel, onSaved }) {
   );
 }
 
-function JoinTeamForm({ login, reload, showToast }) {
+function JoinTeamForm({ reload, showToast, onDone }) {
   const [form, setForm] = useState({ in_game_name: '', email: '', phone: '', team_code: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -781,9 +794,9 @@ function JoinTeamForm({ login, reload, showToast }) {
     setLoading(true);
     try {
       const res = await api.post('/players/join', form);
-      if (res.data.token) login(res.data.user, res.data.token);
       showToast(`Joined ${res.data.team_name || 'the team'}!`);
-      reload();
+      await reload();
+      onDone?.();
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to join team.');
       setLoading(false);
@@ -820,30 +833,36 @@ function JoinTeamForm({ login, reload, showToast }) {
 }
 
 // ─── STANDINGS ────────────────────────────────────────
-function StandingsTab({ team, events, setActiveTab }) {
+function StandingsTab({ myTeams, setActiveTab }) {
+  const rows = myTeams.flatMap((t) => (t.events || []).map((e) => ({ ...e, team_name: t.team_name, game: t.game })));
+
   return (
     <div style={{ animation: 'fadeIn var(--transition-base)' }}>
       <div className="page-header">
         <h1 className="page-title">Standings</h1>
-        <p className="page-subtitle">{team ? `Your ${team.game} team across its events` : 'Create a team to track your standings'}</p>
+        <p className="page-subtitle">Your teams across all their events</p>
       </div>
 
-      {!team ? (
+      {myTeams.length === 0 ? (
         <div className="card" style={{ textAlign: 'center', padding: 'var(--space-2xl)' }}>
           <div style={{ fontSize: '2rem', marginBottom: 'var(--space-sm)' }}>🏆</div>
           <p style={{ color: 'var(--text-secondary)', marginBottom: 'var(--space-lg)' }}>You need a team to have a standing.</p>
-          <button className="btn btn-primary btn-sm" onClick={() => setActiveTab('team')}>Go to My Team →</button>
+          <button className="btn btn-primary btn-sm" onClick={() => setActiveTab('team')}>Go to My Teams →</button>
         </div>
-      ) : (!events || events.length === 0) ? (
+      ) : rows.length === 0 ? (
         <div className="card" style={{ textAlign: 'center', padding: 'var(--space-2xl)' }}>
           <div style={{ fontSize: '2rem', marginBottom: 'var(--space-sm)' }}>🏆</div>
-          <p style={{ color: 'var(--text-secondary)', marginBottom: 'var(--space-lg)' }}>Your team isn't registered for any events yet.</p>
+          <p style={{ color: 'var(--text-secondary)', marginBottom: 'var(--space-lg)' }}>None of your teams are registered for events yet.</p>
           <button className="btn btn-primary btn-sm" onClick={() => setActiveTab('overview')}>Browse events →</button>
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 'var(--space-lg)' }}>
-          {events.map((e) => (
-            <section key={e.game_id} className="card card-glow">
+          {rows.map((e) => (
+            <section key={`${e.game_id}`} className="card card-glow">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', marginBottom: 'var(--space-xs)', flexWrap: 'wrap' }}>
+                <span className="badge badge-active" style={{ fontFamily: 'var(--font-heading)' }}>{e.game}</span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{e.team_name}</span>
+              </div>
               <h3 style={{ color: 'var(--neon-blue)', marginBottom: 'var(--space-xs)' }}>{e.tournament_name}</h3>
               <div style={{ display: 'flex', gap: 'var(--space-lg)', alignItems: 'center', flexWrap: 'wrap' }}>
                 <div style={{ textAlign: 'center' }}>

@@ -1,22 +1,27 @@
 # ggBoard 🎮
 ### Esports Event Management Web Platform
 
-ggBoard is a full-stack, esports-first event management web platform designed to streamline the complete lifecycle of esports tournaments — from game/tournament setup, team registrations, and player join flows, to real-time public scoreboards and administrative data exports.
+ggBoard is a full-stack, esports-first event management web platform that streamlines the complete lifecycle of esports tournaments — organizers publish tournaments with dates and prizes, players build lasting teams and register into events, admins post round scores, and a public live scoreboard ranks teams in real time.
+
+## ✨ Features
+- **Organizers (multi-tenant):** create tournaments with event details (start/end dates, registration deadline, prize pool, description), manage registered teams and players, post round scores, and export CSV — each organizer scoped to their own tournaments.
+- **Players:** persistent teams — **one per game** (Valorant, BGMI, CS2, …) but **many games at once**; discover tournaments in a public **event feed** and register the matching team; live standings across every event you enter.
+- **Profiles:** contact details, player info (DOB/age, country/city), a "looking for a team" flag, and **per-game identities** (Riot ID `Name#Tag`, Activision ID, BattleTag, UID, Platform) — required to register for that game's events.
+- **Public:** a live scoreboard and an events feed browsable without an account.
 
 ---
 
 ## 🚀 Tech Stack
 
 ### Backend
-- **Runtime**: Node.js
-- **Framework**: Express.js
-- **Database**: SQLite (via `better-sqlite3` for high-performance WAL-mode reads)
-- **Authentication**: JWT (JSON Web Tokens) & password hashing using `bcryptjs`
+- **Runtime / Framework**: Node.js + Express.js (REST)
+- **Database**: **Supabase Postgres** via **Prisma** (behind a repository layer); `jsonb` for round scores + per-game identities
+- **Auth & safety**: JWT (`jsonwebtoken`) + `bcryptjs`, Zod request validation, `express-rate-limit`
 
 ### Frontend
-- **Framework**: Vite + React
-- **Styling**: Modern Vanilla CSS with glowing neon dark theme matching professional broadcast stage aesthetics
-- **HTTP Client**: Axios with automatic JWT attach/interception
+- **Framework**: Vite + React (SPA)
+- **Styling**: Vanilla CSS design system — glassy dark neon esports theme
+- **HTTP Client**: Axios with automatic JWT attach + 401/403 interception
 
 ---
 
@@ -24,20 +29,21 @@ ggBoard is a full-stack, esports-first event management web platform designed to
 
 ```
 ggBoard/
-├── backend/                  # Express REST API & SQLite DB
-│   ├── config/               # Database connection settings
-│   ├── database/             # Schema definitions and database seeding
-│   ├── middleware/           # Role-based access control & global error handling
-│   ├── routes/               # API endpoints (Auth, Games, Teams, Players, Scores, Export)
-│   ├── utils/                # Helper utilities (unique code generation)
+├── backend/                  # Express REST API on Supabase Postgres (Prisma)
+│   ├── config/               # Prisma client singleton
+│   ├── prisma/               # schema.prisma (mirrors the Supabase schema)
+│   ├── repositories/         # The ONLY layer that touches Prisma
+│   ├── middleware/           # Auth/RBAC, Zod validation, rate limit, error handler
+│   ├── routes/               # Auth, Games, Teams, Players, Scores, Export
+│   ├── utils/                # Helpers (unique code, async handler, game profile)
 │   └── server.js             # Entry point
 │
-└── frontend/                 # Vite + React Client
+└── frontend/                 # Vite + React client
     ├── src/
     │   ├── context/          # Global Auth context
-    │   ├── pages/            # View components (Landing, Login, Register, Join)
-    │   ├── utils/            # Axios API configurations
-    │   ├── index.css         # Theme globals and styling tokens
+    │   ├── pages/            # Landing, Auth/RoleSelect, PlayerHub, AdminDashboard, PublicScoreboard
+    │   ├── utils/            # Axios API instance
+    │   ├── index.css         # Design-system tokens + component classes
     │   └── main.jsx
     └── index.html
 ```
@@ -51,19 +57,26 @@ ggBoard/
 - **npm** (v9 or higher)
 
 ### 2. Backend Setup
-1. Open a terminal and navigate to the backend directory:
+1. Navigate to the backend directory and install dependencies:
    ```bash
    cd backend
-   ```
-2. Install the local dependencies:
-   ```bash
    npm install
    ```
-3. Initialize the database and seed the default administrator account:
+2. Create `backend/.env` from `.env.example` with your Supabase connection + a JWT secret:
+   ```env
+   DATABASE_URL="postgresql://…pooler…:6543/postgres?pgbouncer=true"   # transaction pooler (runtime)
+   DIRECT_URL="postgresql://…:5432/postgres"                           # direct (CLI migrations)
+   JWT_SECRET="<a long random string>"
+   ```
+3. Generate the Prisma client:
+   ```bash
+   npx prisma generate
+   ```
+4. *(Optional)* Seed the default admin account:
    ```bash
    npm run seed
    ```
-4. Start the development server (runs on `http://localhost:3001`):
+5. Start the API (runs on `http://localhost:3001`):
    ```bash
    npm run dev
    ```

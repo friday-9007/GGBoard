@@ -75,11 +75,38 @@ const teams = {
       select: { id: true },
     })),
 
-  async getMyTeam(teamId) {
-    const team = await prisma.team.findUnique({ where: { id: teamId } });
-    if (!team) return null;
-    const players = await prisma.player.findMany({ where: { team_id: teamId }, orderBy: { created_at: 'asc' } });
-    return { team, players };
+  // Every team a user belongs to (leads or is rostered in) — one per game.
+  membershipWhere: (userId) => ({ OR: [{ leader_id: userId }, { players: { some: { user_id: userId } } }] }),
+
+  // Is the user a member (leader or roster) of this team?
+  async isMember(userId, teamId) {
+    const t = await prisma.team.findFirst({ where: { id: teamId, OR: [{ leader_id: userId }, { players: { some: { user_id: userId } } }] }, select: { id: true } });
+    return !!t;
+  },
+
+  // The user's team for a given game, if any (enforces one-team-per-game).
+  async userTeamForGame(userId, game) {
+    const g = String(game || '').trim().toLowerCase();
+    const list = await prisma.team.findMany({
+      where: { OR: [{ leader_id: userId }, { players: { some: { user_id: userId } } }] },
+      select: { id: true, team_name: true, game: true, leader_id: true },
+    });
+    return list.find((t) => String(t.game).trim().toLowerCase() === g) || null;
+  },
+
+  // All of a user's teams, each with roster + registered events (for the My Teams switcher).
+  async myTeamsDetailed(userId) {
+    const list = await prisma.team.findMany({
+      where: { OR: [{ leader_id: userId }, { players: { some: { user_id: userId } } }] },
+      orderBy: { created_at: 'asc' },
+      include: { players: { orderBy: { created_at: 'asc' } } },
+    });
+    const out = [];
+    for (const t of list) {
+      const { players, ...team } = t;
+      out.push({ ...team, is_leader: team.leader_id === userId, players, events: await teams.myEvents(team.id) });
+    }
+    return out;
   },
 
   // Tournaments this team is registered in, each with its live standing.
@@ -141,11 +168,7 @@ const teams = {
 
   // Player self-service: caller becomes leader. Creates the team only (not registered yet).
   createForPlayer: ({ team_name, unique_code, game, leaderId }) =>
-    prisma.$transaction(async (tx) => {
-      const team = await tx.team.create({ data: { team_name, unique_code, game, leader_id: leaderId } });
-      const user = await tx.user.update({ where: { id: leaderId }, data: { team_id: team.id } });
-      return { team, user };
-    }),
+    prisma.team.create({ data: { team_name, unique_code, game, leader_id: leaderId } }),
 
   // Organizer manual add: leader account + team + registration into the given tournament.
   createByAdmin: ({ team_name, unique_code, game, game_id, leader_name, leader_username, password_hash }) =>
@@ -154,7 +177,6 @@ const teams = {
         data: { username: leader_username, password_hash, role: 'team_leader', role_selected: true, display_name: leader_name },
       });
       const team = await tx.team.create({ data: { team_name, unique_code, game, leader_id: leader.id } });
-      await tx.user.update({ where: { id: leader.id }, data: { team_id: team.id } });
       await tx.score.create({ data: { team_id: team.id, game_id, round_scores: [], total_score: 0 } });
       return { team };
     }),
@@ -166,12 +188,8 @@ const teams = {
   // Admin: remove a team from one of their tournaments (delete that registration only).
   unregister: (teamId, gameId) => prisma.score.deleteMany({ where: { team_id: teamId, game_id: gameId } }),
 
-  // Delete team; unlink member accounts (never delete accounts). Players/scores cascade.
-  deleteAndUnlink: (id) =>
-    prisma.$transaction([
-      prisma.user.updateMany({ where: { team_id: id }, data: { team_id: null } }),
-      prisma.team.delete({ where: { id } }),
-    ]),
+  // Delete a team. Players/scores/submissions cascade; member accounts are untouched.
+  remove: (id) => prisma.team.delete({ where: { id } }),
 };
 
 // ─────────────────────────── players ───────────────────────────
@@ -184,17 +202,9 @@ const players = {
     !!(await prisma.player.findFirst({ where: { in_game_name, team_id }, select: { id: true } })),
 
   joinTeam: ({ full_name, in_game_name, email, phone, team_id, userId }) =>
-    prisma.$transaction(async (tx) => {
-      const player = await tx.player.create({ data: { full_name, in_game_name, email, phone, team_id, user_id: userId } });
-      await tx.user.update({ where: { id: userId }, data: { team_id } });
-      return player;
-    }),
+    prisma.player.create({ data: { full_name, in_game_name, email, phone, team_id, user_id: userId } }),
 
-  removeAndFree: (id, user_id) =>
-    prisma.$transaction(async (tx) => {
-      if (user_id) await tx.user.update({ where: { id: user_id }, data: { team_id: null } });
-      await tx.player.delete({ where: { id } });
-    }),
+  remove: (id) => prisma.player.delete({ where: { id } }),
 
   // Players on teams registered in the organizer's tournaments.
   async listAll({ organizer_id, team_id, game_id, search }) {

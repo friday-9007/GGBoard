@@ -2,8 +2,8 @@
 ### Esports Event Management Web Platform
 ---
 
-> **Document Status:** Draft v1.0 — Phase 1 (More sections to be added)
-> **Last Updated:** May 2026
+> **Document Status:** Original planning synopsis (the initial vision). For the **as-built** system, see [ARCHITECTURE.md](ARCHITECTURE.md) and [ggBoard_Checklist_updated.md](ggBoard_Checklist_updated.md).
+> **Last Updated:** 2026-07-06
 
 ---
 
@@ -12,6 +12,14 @@
 **ggBoard** is a full-stack web-based esports event management platform designed to handle the complete lifecycle of an esports tournament — from team registration and player management to live scoreboards and data export. It is built to serve three distinct user roles: **Admins**, **Team Leaders**, and **Players**, each with scoped access and permissions tailored to their responsibilities.
 
 The platform removes the friction of manual tournament management by centralizing everything — game setup, team creation, player data, scoring, and reporting — into one streamlined interface.
+
+> **📌 Implementation update (2026-07):** the build has evolved beyond this original draft. Now live:
+> - **Cloud database** — runs on **Supabase Postgres** via **Prisma** (not local SQLite).
+> - **Persistent teams + registration** — a team belongs to a **game** and **registers into tournaments**; a player has **one team per game but many games at once** (no longer one-team-per-tournament).
+> - **Public event feed** — organizers set event dates/prize; players discover **ongoing/upcoming** tournaments and register the matching team.
+> - **Player profiles** — contact info, player details, "looking for a team", and **per-game identities** (Riot ID / Activision ID / BattleTag / UID) that are required to register for that game.
+> - **UI/UX** — a glassy dark-neon design system across all screens.
+> The current data model, API surface, and decision log (ADR-001…010) live in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 

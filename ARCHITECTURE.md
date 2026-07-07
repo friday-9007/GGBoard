@@ -1,6 +1,6 @@
 # ggBoard — Architecture
 
-> **Status:** Living document · **As-of branch:** `beta` (post Supabase/Prisma migration — ADR-006)
+> **Status:** Living document · **As-of branch:** `beta` (Supabase/Prisma + decoupled teams, multi-team players, event feed, profiles, UI overhaul — ADR-006…010)
 > **Scope:** Describes the system *as it actually exists in code today*. No code changes are implied by this document. All Mermaid diagrams below are syntax-validated.
 
 ggBoard is a full-stack **esports tournament management** platform: an admin configures games/tournaments, the public registers teams and joins them, the admin records round scores, and a public leaderboard ranks teams live.
@@ -125,12 +125,11 @@ sequenceDiagram
 ```mermaid
 erDiagram
     USERS ||--o{ GAMES : "organizes (organizer_id)"
-    GAMES ||--o{ TEAMS : "hosts"
-    GAMES ||--o{ SCORES : "scored in"
-    USERS ||--o| TEAMS : "leads (leader_id)"
-    USERS ||--o| PLAYERS : "is roster member (user_id)"
+    USERS ||--o{ TEAMS : "leads (leader_id)"
+    USERS ||--o{ PLAYERS : "roster member (user_id)"
     TEAMS ||--o{ PLAYERS : "rosters"
-    TEAMS ||--o{ SCORES : "earns"
+    TEAMS ||--o{ SCORES : "registers into tournaments"
+    GAMES ||--o{ SCORES : "registrations + scores"
     USERS ||--o{ SUBMISSIONS : "uploads (user_id)"
     USERS ||--o{ SUBMISSIONS : "reviews (reviewed_by)"
     GAMES ||--o{ SUBMISSIONS : "in"
@@ -140,28 +139,39 @@ erDiagram
         INTEGER id PK
         TEXT game_title "NOT NULL"
         TEXT tournament_name "NOT NULL"
-        TEXT status "active|inactive CHECK"
+        TEXT status "active|inactive"
         INTEGER num_rounds "default 3"
+        TEXT description "nullable"
+        TIMESTAMPTZ start_date "nullable"
+        TIMESTAMPTZ end_date "nullable"
+        TIMESTAMPTZ registration_deadline "nullable"
+        TEXT prize_pool "nullable"
         INTEGER organizer_id FK "owner - CASCADE"
-        DATETIME created_at "default now"
+        TIMESTAMPTZ created_at "default now"
     }
     USERS {
         INTEGER id PK
         TEXT username "UNIQUE NOT NULL"
         TEXT password_hash "bcrypt NOT NULL"
-        TEXT role "admin|team_leader CHECK"
-        BOOLEAN role_selected "true=chosen, false=pending signup"
+        TEXT role "admin|team_leader"
+        BOOLEAN role_selected "false=pending signup"
         TEXT display_name "nullable"
-        INTEGER team_id "soft link - NO FK"
-        DATETIME created_at "default now"
+        TEXT email "nullable"
+        TEXT phone "nullable"
+        JSONB games "per-game identity [{game,ign,uid,rank,role}]"
+        DATE date_of_birth "nullable"
+        TEXT country_city_gender_language "profile fields"
+        BOOLEAN looking_for_team "default false"
+        TEXT preferred_role_bio "profile fields"
+        TIMESTAMPTZ created_at "default now"
     }
     TEAMS {
         INTEGER id PK
         TEXT team_name "NOT NULL"
         TEXT unique_code "UNIQUE NOT NULL"
-        INTEGER game_id FK "NOT NULL CASCADE"
+        TEXT game "game title, e.g. Valorant"
         INTEGER leader_id FK "nullable SET NULL"
-        DATETIME created_at "default now"
+        TIMESTAMPTZ created_at "default now"
     }
     PLAYERS {
         INTEGER id PK
@@ -199,14 +209,15 @@ erDiagram
 
 Source of truth: the **Supabase Postgres** schema, mirrored in [`schema.prisma`](backend/prisma/schema.prisma). Notable design decisions and caveats:
 
-- **`scores.round_scores` is a `jsonb` array** — Prisma returns/accepts it as a native JS array (no manual `JSON.parse`). Flexible (any number of rounds without a schema change) but per-round aggregation still happens in app code.
-- **`scores.total_score` is denormalized** — it is recomputed and rewritten by the app on every `POST /scores/update` ([`scores.js:29`](backend/routes/scores.js#L29)). Nothing at the DB level keeps it consistent with `round_scores`.
-- **`scores` has `UNIQUE(team_id, game_id)`** — one score row per team per game; the update route upserts against the compound key.
-- **`users.team_id` has no `FK` constraint** — it is a soft back-pointer. The enforced FK is `teams.leader_id → users.id (ON DELETE SET NULL)`. The user→team link relies on app code to stay correct.
-- **Cascades:** Postgres FKs cascade a game delete to its teams, players, scores, and submissions. Deleting a team cascades to its players/scores/submissions but **never deletes member accounts** — `teams.deleteAndUnlink` clears each member's `users.team_id` first, then deletes the team ([`repositories/index.js`](backend/repositories/index.js)).
-- **`submissions`** stores **references** to uploaded media (images now, gameplay-verification video later) — the file bytes live in **Supabase Storage**, the row keeps `storage_path` + review `status`. This backs the planned upload feature without bloating the relational tables.
-- **RLS is enabled** on every table (deny-by-default). The API connects as the Postgres role that owns the tables and bypasses RLS; the policies are the backstop if the anon/publishable key is ever used directly from the browser.
-- Indexes cover the hot lookup paths (`unique_code`, `team_id`, `game_id`, `role`, composite `team_id+game_id`).
+- **A team belongs to a *game* (title), not a tournament** (ADR-007). `teams.game` is a plain string (e.g. `"Valorant"`); teams are lasting rosters created any time, even with no open events.
+- **A `scores` row *is* a registration** — inserting `(team_id, game_id)` means "team registered into tournament `game_id`", and the row also carries that tournament's `round_scores`/`total_score`. So a tournament's **registered teams = its score rows**, and a team can enter many tournaments over time. `UNIQUE(team_id, game_id)` prevents double registration; the score update upserts against the compound key.
+- **Membership is many-to-many with a one-per-game rule** (ADR-008). A user's teams = teams they **lead** (`teams.leader_id`) ∪ teams they're **rostered in** (`players.user_id`). There is **no `users.team_id`** — a user may hold **one team per game across many games**; create/join is rejected (`409`) if they already have a team for that game.
+- **`users.games` is `jsonb`** — a list of per-game identities `[{ game, ign, uid, rank, role }]`. `ign`+`uid` are optional in the profile but **required to register** for that game's events (game-specific labels on the client: Riot ID, Activision ID, BattleTag, UID, …).
+- **Games carry event metadata** — `description`, `start_date`, `end_date`, `registration_deadline`, `prize_pool`. The public `GET /games/events` feed classifies active games into **ongoing / upcoming** by date and hides finished ones.
+- **`scores.round_scores` is a `jsonb` array** (native JS array via Prisma); **`total_score` is denormalized**, recomputed on every `POST /scores/update`.
+- **Cascades:** deleting a game removes its scores (registrations) + submissions; deleting a team removes its players/scores/submissions. **Member accounts are never touched** — `teams.remove` just deletes the team; leaving/removing a player deletes only the `players` row.
+- **`submissions`** stores **references** to uploaded media (images now, gameplay-verification video later) — bytes live in **Supabase Storage**, the row keeps `storage_path` + review `status`. *(Table exists; UI/endpoints not built yet.)*
+- **RLS is enabled** on every table (deny-by-default). The API connects as the table-owner Postgres role and bypasses RLS; policies are the backstop if the anon/publishable key is ever used from the browser.
 
 ---
 
@@ -225,26 +236,32 @@ Base URL `http://localhost:3001` (hardcoded in [`frontend/src/utils/api.js`](fro
 | POST | `/auth/admin/register` | Public | Organizer self sign-up → JWT (multi-tenant) |
 | POST | `/auth/leader/login` | Public | Team-leader login → JWT |
 | POST | `/auth/logout` | Public | Stateless (client discards token) |
-| POST | `/games/create` | Admin | Create game/tournament |
-| GET | `/games/all` | Admin | All games + team counts |
-| GET | `/games/active` | Public | Active games (registration dropdowns) |
-| PATCH | `/games/:id` | Admin | Update game (COALESCE partial) |
-| DELETE | `/games/:id` | Admin | Delete game (cascades) |
-| POST | `/teams/create` | Player/Admin | Player self-creates a team (becomes leader); admin manual-add auto-generates a leader account |
-| GET | `/teams/all` | Admin | All teams + leader + player counts |
-| GET | `/teams/my` | Leader | Own team + roster |
-| PATCH | `/teams/:id` | Admin/Leader | Update team (leader: own only) |
-| DELETE | `/teams/:id` | Admin | Delete team + leader user |
-| POST | `/players/join` | Player | Signed-in player joins a team by `unique_code` (links account) |
-| POST | `/players/add` | Admin | Add player to any team |
-| GET | `/players/all` | Admin | All players (filters: `team_id`, `game_id`, `search`) |
-| PATCH | `/players/:id` | Admin/Leader | Edit player (leader: own team only) |
-| DELETE | `/players/:id` | Admin/Leader | Remove player (leader: own team only) |
-| POST | `/scores/update` | Admin | Upsert `round_scores[]`, recompute total |
-| GET | `/scores/:gameId` | Public | Ranked scoreboard for a game |
-| POST | `/export` | Admin | CSV export (`players` \| `scores` \| `combined`), optional `game_id`, field selection |
+| GET | `/auth/me` | Auth | Current user's full profile |
+| PATCH | `/auth/profile` | Auth | Update profile (name, contact, `games[]`, player details, LFT, bio) |
+| POST | `/auth/profile/game` | Auth | Upsert one game identity `{game,ign,uid}` (used by the registration gate) |
+| POST | `/games/create` | Admin | Create a tournament (+ event details: dates, prize, description) |
+| GET | `/games/all` | Admin | Own tournaments + registered-team counts |
+| GET | `/games/active` | Public | Active tournaments |
+| GET | `/games/events` | Public | **Event feed** — active tournaments split ongoing/upcoming (+ organizer, registered count) |
+| PATCH | `/games/:id` | Admin | Update tournament (owner only) |
+| DELETE | `/games/:id` | Admin | Delete tournament (cascades registrations) |
+| POST | `/teams/create` | Player/Admin | Player creates a team for a game (**one per game**); admin manual-add creates a team + registers it into a tournament |
+| POST | `/teams/register` | Leader | Register the caller's game-team into a tournament (game-match + profile gate) |
+| GET | `/teams/mine` | Player | All my teams (one per game) with roster + registered events + standings |
+| GET | `/teams/all` | Admin | Teams registered in my tournaments (one row per registration) |
+| PATCH | `/teams/:id` | Admin/Leader | Rename team (its leader, or organizer of a tournament it's in) |
+| DELETE | `/teams/:id` | Leader | Disband own team |
+| DELETE | `/teams/:teamId/registration/:gameId` | Admin | Remove a team from my tournament (unregister) |
+| POST | `/players/join` | Player | Join a team by `unique_code` (**one team per game**) |
+| POST | `/players/add` | Admin | Add a roster player to a team in my tournament |
+| GET | `/players/all` | Admin | Players on teams registered in my tournaments (filters: `team_id`,`game_id`,`search`) |
+| PATCH | `/players/:id` | Admin/Leader | Edit player (leader of the team, or self) |
+| DELETE | `/players/:id` | Admin/Leader | Remove player / leave team |
+| POST | `/scores/update` | Admin | Upsert a registered team's `round_scores[]`; recompute total |
+| GET | `/scores/:gameId` | Public | Ranked scoreboard for a tournament |
+| POST | `/export` | Admin | CSV export (`players` \| `scores` \| `combined`), optional `game_id` |
 
-> **Multi-tenant scoping (organizers):** every **Admin** management endpoint is owner-scoped via `games.organizer_id` — an organizer can only read/modify their **own** games, teams, players, scores, and exports (cross-org access returns `403`). **Public** read endpoints (`/games/active`, `/scores/:gameId`) stay global so visitors can browse tournaments and scoreboards across all organizers.
+> **Multi-tenant scoping (organizers):** every **Admin** endpoint is owner-scoped via `games.organizer_id`. A team/player is "in my tournament" when the team has a **registration (`scores` row) in one of my games** — organizers manage only teams registered in their tournaments and can only **unregister** (not delete) them; cross-org access returns `403`. **Public** reads (`/games/active`, `/games/events`, `/scores/:gameId`) stay global.
 
 > **Auth status-code contract:** `401` always means "re-authenticate" (missing/expired/invalid token — the SPA clears the session and redirects to `/auth`); `403` always means "authenticated but not allowed" (wrong role, not the owner/leader) and never logs the user out.
 
@@ -338,6 +355,10 @@ flowchart LR
 - **ADR-004 — Unified auth + self-registered players.** *Accepted.* A single `/auth` page handles Sign In + Sign Up. Players self-register (own credentials) and then create or join a team (`players.user_id` links the account; one team per player). The `team_leader` role is reused for player accounts (no enum change). Auto-generated leader credentials are **removed from the player flow** but retained for the **admin manual add-team** path (role-branched in `POST /teams/create`). Creating/joining returns a refreshed JWT. Old per-role endpoints are kept for backward compatibility.
 - **ADR-005 — Two-step sign-up with mandatory role selection.** *Accepted.* Sign-up is split: `POST /auth/signup` creates the account from credentials only (so a duplicate username is reported on the sign-up form) and returns an authenticated but **pending** session (`users.role_selected = 0`, placeholder role). The user must then pick Organizer/Player on `/auth/role` → `POST /auth/select-role`. Enforcement is defense-in-depth: the JWT carries `roleSelected`, every role guard returns `403` for a pending token, and the SPA's `ProtectedRoute` + post-login routing force a pending user to `/auth/role` on every entry (including a later sign-in after abandoning the step). Role is chosen once and can't be re-selected (`409`). Chosen over a DB-nullable role to avoid a risky SQLite table rebuild.
 - **ADR-006 — Migrate to Supabase Postgres behind Prisma + a repository layer.** *Accepted.* The database moved from local `better-sqlite3` (synchronous, single-file, single-node) to **Supabase Postgres 17** accessed via **Prisma 6** (`prisma-client-js`). Rationale: the app's data is inherently relational, and a managed cloud Postgres removes the serverless/edge blocker (ADR-002) while keeping SQL. A **repository layer** ([`repositories/index.js`](backend/repositories/index.js)) is the sole Prisma caller, so a later engine swap (e.g. Mongo) rewrites one folder, not every route — this was the deciding factor for the abstraction. Prisma **6** (not 7) is pinned because Prisma 7's `prisma-client` generator emits TypeScript, unusable in this CommonJS codebase without a build step; 6's `prisma-client-js` emits JS into `node_modules`. Field names stay **snake_case** so the JSON API contract and the frontend are unchanged. Runtime uses the **transaction pooler** (PgBouncer, `?pgbouncer=true`, IPv4-friendly); `DIRECT_URL` is reserved for CLI migrations. `round_scores` is now **`jsonb`**; a new **`submissions`** table holds references to media in **Supabase Storage** (images now, gameplay-verification video later — the original driver for choosing SQL + object storage over embedding blobs). **RLS** is enabled deny-by-default on all tables; the API connects as the table-owner role and bypasses it. Verified end-to-end against the live database (34/34 regression checks: two-step signup, pending-role guards, team lifecycle, scoring, multi-tenant isolation, export).
+- **ADR-007 — Decouple teams from tournaments; registration = a `scores` row.** *Accepted.* Previously a team was created *for one tournament* (`teams.game_id`), so creating the team **was** the registration and a team was single-tournament. Now a team belongs to a **game title** (`teams.game`) and is a lasting roster; entering a tournament is a separate act represented by a `scores` row `(team_id, game_id)`. This lets a team register into **many** tournaments over time, matches how real esports rosters work, and reuses the existing `scores` table as the join/registration record (no new table). Organizer scoping and the `/teams/all` view moved to go through registrations; admin "delete team" became **unregister** (remove from *their* tournament) since a team can be in others'. Verified 19/19.
+- **ADR-008 — Players may hold one team per game across many games.** *Accepted.* Dropped the single `users.team_id`; membership is now the union of teams **led** (`teams.leader_id`) and **rostered** (`players.user_id`). Create/join enforces **one team per game** (`409` otherwise) but a player can field a Valorant team *and* a BGMI team simultaneously. The JWT no longer carries `teamId` (a user has many); membership is queried from the DB. The player dashboard's *My Team* became **My Teams** with per-game switcher chips. Verified 16/16.
+- **ADR-009 — Public event feed + player profiles + per-game identities.** *Accepted.* Games gained event metadata (`description`, `start_date`, `end_date`, `registration_deadline`, `prize_pool`); `GET /games/events` classifies active tournaments into ongoing/upcoming so any player can discover and register from the Overview feed. Users gained a profile (`email`, `phone`, player details, `looking_for_team`, `bio`) and a **`games` jsonb** of per-game identities `{game, ign, uid, rank, role}`. Identity fields are game-specific on the client (Riot ID `Name#Tag`, Activision ID, BattleTag, UID, Platform) but store in two generic slots; `ign`+`uid` are **required to register** for that game's events (enforced at `POST /teams/register`, prompted via a gate modal).
+- **ADR-010 — In-code design-system UI/UX pass.** *Accepted.* Chose a code-level overhaul (shared CSS tokens + component classes) over a Figma-first loop for token efficiency and immediate results: ambient layered background, glassmorphic cards with gradient hairlines, elevation scale, refined inputs/stat-cards/buttons (sheen + press), sidebar active-indicator, focus-visible ring, reduced-motion support, and a shimmering landing hero. Lifts every screen at once since they share the tokens/classes.
 
 ---
 

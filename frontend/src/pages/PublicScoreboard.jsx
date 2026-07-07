@@ -63,8 +63,8 @@ export default function PublicScoreboard() {
           <p className="page-subtitle">Real-time tournament standings and match updates</p>
         </div>
         <div style={{ display: 'flex', gap: 'var(--space-sm)' }}>
-          <Link to="/join-team" className="btn btn-secondary btn-sm">Join a Team</Link>
-          <Link to="/create-team" className="btn btn-primary btn-sm">Register Team</Link>
+          <Link to="/auth?mode=signin" className="btn btn-secondary btn-sm">Sign In</Link>
+          <Link to="/auth?mode=signup" className="btn btn-primary btn-sm">Get Started</Link>
         </div>
       </header>
 
@@ -120,6 +120,11 @@ export default function PublicScoreboard() {
                 <span>Format: {scoreboardData.game.num_rounds} Rounds</span>
               </div>
             </div>
+
+            {/* Podium — top 3 */}
+            {scoreboardData.scoreboard.length > 0 && (
+              <Podium teams={scoreboardData.scoreboard.slice(0, 3)} />
+            )}
 
             {/* Scoreboard Table */}
             {scoreboardData.scoreboard.length === 0 ? (
@@ -188,6 +193,50 @@ export default function PublicScoreboard() {
           </section>
         )}
       </main>
+    </div>
+  );
+}
+
+// Top-3 podium (displayed 2nd · 1st · 3rd, gold/silver/bronze pedestals)
+function Podium({ teams }) {
+  const medal = ['🥇', '🥈', '🥉'];
+  const accent = ['var(--neon-yellow)', '#cbd5e1', 'var(--neon-orange)'];
+  const heights = [156, 122, 100];
+  const order = [1, 0, 2]; // render 2nd, 1st, 3rd for the classic podium shape
+
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-end', gap: 'var(--space-md)', flexWrap: 'wrap', margin: '0 auto var(--space-xl)' }}>
+      {order.map((rank) => {
+        const t = teams[rank];
+        if (!t) return null;
+        const c = accent[rank];
+        return (
+          <div key={t.team_id} style={{ width: 190, maxWidth: '42vw', textAlign: 'center' }}>
+            <div style={{ fontSize: '2.1rem', filter: `drop-shadow(0 0 10px ${c}66)` }}>{medal[rank]}</div>
+            <div style={{ fontWeight: 700, margin: '0.15rem 0', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.team_name}</div>
+            <div style={{ fontFamily: 'var(--font-heading)', fontSize: '1.5rem', fontWeight: 800, color: 'var(--neon-cyan)' }}>{t.total_score}</div>
+            <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '0.4rem' }}>points</div>
+            <div style={{
+              height: heights[rank],
+              borderRadius: 'var(--radius-md) var(--radius-md) 0 0',
+              background: `linear-gradient(180deg, ${c}26, transparent)`,
+              border: `1px solid ${c}55`,
+              borderBottom: 'none',
+              display: 'flex',
+              alignItems: 'flex-start',
+              justifyContent: 'center',
+              paddingTop: '0.6rem',
+              color: c,
+              fontFamily: 'var(--font-heading)',
+              fontWeight: 800,
+              fontSize: '1.7rem',
+              boxShadow: `inset 0 0 30px ${c}18`,
+            }}>
+              #{rank + 1}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

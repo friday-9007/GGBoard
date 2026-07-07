@@ -17,7 +17,7 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const { teams, games, users, scores } = require('../repositories');
-const { requireAdmin, requireTeamLeader, requireAdminOrLeader, generateToken } = require('../middleware/auth');
+const { requireAdmin, requireTeamLeader, requireAdminOrLeader } = require('../middleware/auth');
 const { generateUniqueCode } = require('../utils/generateCode');
 const { hasCompleteGame } = require('../utils/gameProfile');
 const asyncHandler = require('../utils/asyncHandler');
@@ -46,19 +46,18 @@ router.post('/create', requireAdminOrLeader, asyncHandler(async (req, res) => {
     const { team_name, game } = req.body;
     if (!team_name || !game) return res.status(400).json({ error: 'team_name and game are required.' });
 
-    const me = await users.findById(req.user.id);
-    if (me && me.team_id) return res.status(409).json({ error: 'You already belong to a team.' });
+    // One team per game (but the player may have teams for other games).
+    const existing = await teams.userTeamForGame(req.user.id, game);
+    if (existing) return res.status(409).json({ error: `You already have a ${game} team ("${existing.team_name}").` });
 
     const uniqueCode = await generateUniqueCode();
-    const { team, user } = await teams.createForPlayer({
+    const team = await teams.createForPlayer({
       team_name: String(team_name).trim(), unique_code: uniqueCode, game: String(game).trim(), leaderId: req.user.id,
     });
 
     return res.status(201).json({
       message: 'Team created! Register it for events from your dashboard.',
       team: { id: team.id, team_name: team.team_name, unique_code: team.unique_code, game: team.game },
-      token: generateToken(user),
-      user: { id: user.id, username: user.username, role: user.role, displayName: user.display_name, teamId: user.team_id },
     });
   }
 
@@ -98,26 +97,23 @@ router.post('/register', requireTeamLeader, asyncHandler(async (req, res) => {
   const gameId = Number(req.body.game_id);
   if (!gameId) return res.status(400).json({ error: 'game_id is required.' });
 
-  const me = await users.findById(req.user.id);
-  if (!me?.team_id) return res.status(400).json({ error: 'Create a team first before registering for events.' });
-
-  const team = await teams.findById(me.team_id);
-  if (!team) return res.status(404).json({ error: 'Team not found.' });
-  if (team.leader_id !== req.user.id) {
-    return res.status(403).json({ error: 'Only the team leader can register the team for events.' });
-  }
-
   const game = await games.findActiveById(gameId);
   if (!game) return res.status(400).json({ error: 'Invalid or inactive tournament.' });
 
-  if (game.game_title.trim().toLowerCase() !== team.game.trim().toLowerCase()) {
-    return res.status(400).json({ error: `Your team plays ${team.game}, but this event is for ${game.game_title}.` });
+  const me = await users.findById(req.user.id);
+  // The team used is the caller's team for this event's game (one per game).
+  const team = await teams.userTeamForGame(req.user.id, game.game_title);
+  if (!team) {
+    return res.status(400).json({ error: `Create a ${game.game_title} team first to register for this event.`, code: 'NO_TEAM_FOR_GAME', game: game.game_title });
   }
-  if (!hasCompleteGame(me.games, team.game)) {
+  if (team.leader_id !== req.user.id) {
+    return res.status(403).json({ error: 'Only the team leader can register the team for events.' });
+  }
+  if (!hasCompleteGame(me.games, game.game_title)) {
     return res.status(400).json({
-      error: `Add your ${team.game} in-game name and UID to register for this event.`,
+      error: `Add your ${game.game_title} in-game name and UID to register for this event.`,
       code: 'GAME_PROFILE_REQUIRED',
-      game: team.game,
+      game: game.game_title,
     });
   }
   if (await scores.isRegistered(team.id, gameId)) {
@@ -135,18 +131,9 @@ router.get('/all', requireAdmin, asyncHandler(async (req, res) => {
   res.json({ teams: await teams.listByOrganizer(req.user.id) });
 }));
 
-router.get('/my', requireTeamLeader, asyncHandler(async (req, res) => {
-  const teamId = req.user.teamId;
-  if (!teamId) return res.status(404).json({ error: 'No team associated with your account.' });
-  const result = await teams.getMyTeam(teamId);
-  if (!result) return res.status(404).json({ error: 'Team not found.' });
-  res.json(result); // { team, players }
-}));
-
-router.get('/my/events', requireTeamLeader, asyncHandler(async (req, res) => {
-  const teamId = req.user.teamId;
-  if (!teamId) return res.json({ events: [] });
-  res.json({ events: await teams.myEvents(teamId) });
+// All of the caller's teams (one per game), each with roster + registered events.
+router.get('/mine', requireTeamLeader, asyncHandler(async (req, res) => {
+  res.json({ teams: await teams.myTeamsDetailed(req.user.id) });
 }));
 
 router.patch('/:id', requireAdminOrLeader, asyncHandler(async (req, res) => {
@@ -174,7 +161,7 @@ router.delete('/:id', requireTeamLeader, asyncHandler(async (req, res) => {
   if (existing.leader_id !== req.user.id) {
     return res.status(403).json({ error: 'Only the team leader can delete the team.' });
   }
-  await teams.deleteAndUnlink(id);
+  await teams.remove(id);
   res.json({ message: 'Team disbanded.' });
 }));
 

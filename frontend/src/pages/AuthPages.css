@@ -11,9 +11,13 @@
 .auth-bg {
   position: absolute;
   inset: 0;
-  background: radial-gradient(ellipse at 30% 30%, rgba(168, 85, 247, 0.06) 0%, transparent 50%),
-              radial-gradient(ellipse at 70% 70%, rgba(0, 212, 255, 0.06) 0%, transparent 50%),
-              var(--bg-primary);
+  background-color: var(--bg-primary);
+  background-image:
+    radial-gradient(40rem 40rem at 22% 18%, rgba(168, 85, 247, 0.13), transparent 55%),
+    radial-gradient(40rem 40rem at 82% 82%, rgba(0, 212, 255, 0.13), transparent 55%),
+    linear-gradient(rgba(255, 255, 255, 0.016) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.016) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 46px 46px, 46px 46px;
 }
 
 .auth-container {
@@ -37,11 +41,27 @@
 }
 
 .auth-card {
-  background: var(--bg-card);
+  position: relative;
+  background-color: var(--bg-card);
+  background-image: var(--surface-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   padding: var(--space-2xl);
+  box-shadow: var(--shadow-xl);
+  backdrop-filter: blur(10px);
   animation: slideUp 0.4s ease;
+}
+.auth-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.18), transparent 45%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  pointer-events: none;
 }
 
 .auth-header {
@@ -55,12 +75,13 @@
 }
 
 .auth-title {
-  font-size: 1.5rem;
+  font-size: 1.6rem;
   margin-bottom: var(--space-xs);
   background: var(--gradient-primary);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  filter: drop-shadow(0 0 18px rgba(0, 212, 255, 0.22));
 }
 
 .auth-subtitle {

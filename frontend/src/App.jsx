@@ -63,22 +63,9 @@ export default function App() {
               </ProtectedRoute>
             }
           />
-          <Route
-            path="/create-team"
-            element={
-              <ProtectedRoute requiredRole="team_leader">
-                <CreateTeam />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/join-team"
-            element={
-              <ProtectedRoute requiredRole="team_leader">
-                <JoinTeam />
-              </ProtectedRoute>
-            }
-          />
+          {/* Create/Join now live inside the player dashboard (My Teams) */}
+          <Route path="/create-team" element={<Navigate to="/player" replace />} />
+          <Route path="/join-team" element={<Navigate to="/player" replace />} />
 
           {/* Protected Admin Routes */}
           <Route

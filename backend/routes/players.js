@@ -10,7 +10,7 @@
 const express = require('express');
 const router = express.Router();
 const { players, teams, users } = require('../repositories');
-const { requireAdmin, requireTeamLeader, requireAdminOrLeader, generateToken } = require('../middleware/auth');
+const { requireAdmin, requireTeamLeader, requireAdminOrLeader } = require('../middleware/auth');
 const asyncHandler = require('../utils/asyncHandler');
 
 router.post('/join', requireTeamLeader, asyncHandler(async (req, res) => {
@@ -18,11 +18,14 @@ router.post('/join', requireTeamLeader, asyncHandler(async (req, res) => {
   if (!in_game_name || !team_code) return res.status(400).json({ error: 'Required fields: in_game_name, team_code' });
 
   const me = await users.findById(req.user.id);
-  if (me.team_id) return res.status(409).json({ error: 'You already belong to a team.' });
-
   const team = await teams.findByCode(String(team_code).toUpperCase());
   if (!team) return res.status(404).json({ error: 'Invalid team code. No team found with this code.' });
 
+  // One team per game — you may already have a team for a different game, but not this one.
+  const existing = await teams.userTeamForGame(req.user.id, team.game);
+  if (existing) {
+    return res.status(409).json({ error: `You already have a ${team.game} team ("${existing.team_name}").` });
+  }
   if (await players.existsIgnInTeam(in_game_name, team.id)) {
     return res.status(409).json({ error: 'A player with this in-game name already exists in this team.' });
   }
@@ -32,13 +35,10 @@ router.post('/join', requireTeamLeader, asyncHandler(async (req, res) => {
     full_name: fullName, in_game_name, email: email || null, phone: phone || null, team_id: team.id, userId: me.id,
   });
 
-  const updated = await users.findById(me.id);
   res.status(201).json({
     message: `Successfully joined team "${team.team_name}"!`,
     player,
     team_name: team.team_name,
-    token: generateToken(updated),
-    user: { id: updated.id, username: updated.username, role: updated.role, displayName: updated.display_name, teamId: updated.team_id },
   });
 }));
 
@@ -71,11 +71,10 @@ router.patch('/:id', requireAdminOrLeader, asyncHandler(async (req, res) => {
   if (!existing) return res.status(404).json({ error: 'Player not found.' });
 
   if (req.user.role === 'team_leader') {
-    if (existing.team_id !== req.user.teamId) return res.status(403).json({ error: 'You can only edit players in your own team.' });
     const team = await teams.findById(existing.team_id);
     const isLeader = team && team.leader_id === req.user.id;
     const isSelf = existing.user_id === req.user.id;
-    if (!isLeader && !isSelf) return res.status(403).json({ error: 'Only the team leader can edit other players.' });
+    if (!isLeader && !isSelf) return res.status(403).json({ error: 'You can only edit players on a team you lead, or your own entry.' });
   }
   if (req.user.role === 'admin') {
     if (!(await teams.registeredWithOrganizer(existing.team_id, req.user.id))) {
@@ -100,11 +99,10 @@ router.delete('/:id', requireAdminOrLeader, asyncHandler(async (req, res) => {
   if (!existing) return res.status(404).json({ error: 'Player not found.' });
 
   if (req.user.role === 'team_leader') {
-    if (existing.team_id !== req.user.teamId) return res.status(403).json({ error: 'You can only remove players from your own team.' });
     const team = await teams.findById(existing.team_id);
     const isLeader = team && team.leader_id === req.user.id;
     const isSelf = existing.user_id === req.user.id;
-    if (!isLeader && !isSelf) return res.status(403).json({ error: 'Only the team leader can remove other players.' });
+    if (!isLeader && !isSelf) return res.status(403).json({ error: 'You can only remove players on a team you lead, or leave yourself.' });
   }
   if (req.user.role === 'admin') {
     if (!(await teams.registeredWithOrganizer(existing.team_id, req.user.id))) {
@@ -112,7 +110,7 @@ router.delete('/:id', requireAdminOrLeader, asyncHandler(async (req, res) => {
     }
   }
 
-  await players.removeAndFree(id, existing.user_id);
+  await players.remove(id);
   res.json({ message: 'Player deleted successfully.' });
 }));
 

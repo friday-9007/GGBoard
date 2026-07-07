@@ -8,7 +8,7 @@
 
 ## 📌 Progress Log
 
-> **Last reconciled:** 2026-07-04 · **Branch:** `beta` · **Anchor commits:** `a467977` (auth flow + RoleSelect), plus the uncommitted Supabase/Prisma migration
+> **Last reconciled:** 2026-07-06 · **Branch:** `beta` · **Anchor commits:** Supabase/Prisma migration committed (`6ac7c1c`); teams/profiles/UI work being committed separately by the owner
 > Checkboxes below were verified against the **actual code**, not assumed. `[x]` = done & verified · `[ ]` = not done · **⚠️ note** = partial/caveat.
 
 **This session:**
@@ -21,7 +21,13 @@
 - ✅ **Security hardening** (via Context7 MCP): `express-rate-limit` on `/auth` + global, Zod input validation on auth/game/score endpoints; verified
 - ✅ **Two-step sign-up + mandatory role (ADR-005)** — `POST /auth/signup` creates the account on "Continue" (duplicate username shows on the sign-up form), then `/auth/role` (Organizer/Player cards) finalises via `POST /auth/select-role`. Pending accounts (`users.role_selected=0`, migration 003) are blocked from every role-gated route (`403`) and force-redirected to `/auth/role` — including on a later sign-in if the user closed the site before choosing. Verified: 11/11 tests.
 - ✅ **Audit pass (Fable 5)** — fixed 6 flaws: team delete no longer destroys/strands accounts; player removal frees the linked account; leader-only powers (members can't rename team / kick teammates, self-leave allowed); 401-vs-403 semantics (403 no longer logs users out); stale-token membership guard reads DB; duplicate team names blocked per tournament. Plus: 15s live scoreboard polling, legacy routes redirected to `/auth`/`/player`, diagrams re-rendered. 12/12 regression tests pass.
-- ✅ **Cloud database migration (ADR-006)** — moved off local SQLite to **Supabase Postgres 17** via **Prisma 6**, behind a **repository layer** ([repositories/index.js](backend/repositories/index.js)) so a future engine swap is one folder. Full async rewrite of all 6 routers + `config/prisma` + `asyncHandler` + Prisma error mapping (`P2002`/`P2003`/`P2025`). `round_scores` → `jsonb`; new **`submissions`** table (references to media in Supabase Storage — images now, gameplay-verification video later); RLS enabled deny-by-default. Verified end-to-end against the live DB: **34/34 regression checks**.
+- ✅ **Cloud database migration (ADR-006)** — moved off local SQLite to **Supabase Postgres 17** via **Prisma 6**, behind a **repository layer** ([repositories/index.js](backend/repositories/index.js)) so a future engine swap is one folder. Full async rewrite of all 6 routers + `config/prisma` + `asyncHandler` + Prisma error mapping (`P2002`/`P2003`/`P2025`). `round_scores` → `jsonb`; new **`submissions`** table (references to media in Supabase Storage — images now, gameplay-verification video later); RLS enabled deny-by-default. Verified end-to-end against the live DB: **34/34 regression checks**. Committed as `6ac7c1c`.
+- ✅ **Player dashboard** — rebuilt as a sidebar hub (Overview / My Teams / Standings / Profile) with team rename, roster edit/remove, leave; live standings.
+- ✅ **Decoupled teams from tournaments (ADR-007)** — a team belongs to a *game*, not a tournament; **registering** into a tournament is a `scores` row, so a team can enter many events; **game-first** create flow; admin "delete team" → **unregister**. Verified **19/19**.
+- ✅ **Multi-team players, one per game (ADR-008)** — dropped `users.team_id`; membership = teams led (`leader_id`) ∪ rostered (`players.user_id`); create/join rejects a second team for the same game; *My Team* → **My Teams** with per-game switcher chips. Verified **16/16**.
+- ✅ **Public event feed + profiles + per-game identities (ADR-009)** — games gained event metadata (dates, prize, description) + `GET /games/events` (ongoing/upcoming); player **Profile** (contact, DOB/age, country/city, gender, language, LFT, bio) and a **`games` jsonb** of per-game identities `{game,ign,uid,rank,role}` with game-specific formats (Riot ID, Activision ID, BattleTag, UID, Platform). Registering an event **requires** that game's IGN/UID (gate modal). Verified across suites.
+- ✅ **UI/UX overhaul (ADR-010)** — in-code design-system pass: ambient layered background, glassmorphic cards, elevation scale, refined inputs/stat-cards/buttons (sheen + press), sidebar active-indicator, focus/selection/reduced-motion, shimmering landing hero, glassed auth/role pages.
+- 📄 Pending items tracked in [PLAYER_DASHBOARD_PENDING.md](PLAYER_DASHBOARD_PENDING.md) (avatar/Storage, Discord/socials, role-selection questions, media upload, dead-page cleanup).
 - 🔎 Reconciled this checklist with verified code state (below)
 
 ### Phase status at a glance
@@ -31,13 +37,13 @@
 | 1 | Project Setup & Foundation | ✅ Complete |
 | 2 | Authentication System | ✅ Complete |
 | 3 | Landing Page | ✅ Complete |
-| 4 | Registration Flows | ✅ Complete |
-| 5 | Admin Panel | 🟡 Mostly (no admin edit-team/edit-player UI; no export field-picker) |
-| 6 | **Team Leader / Player Panel** | 🟡 Player hub shows team + code + roster (6.1 done); edit/remove-player (6.2) pending |
-| 7 | Public Scoreboard | ✅ Complete (live auto-refresh pending) |
-| 8 | Polish & Edge Cases | 🟡 Partial (rate-limit, dup team-name, client validation) |
-| 9 | Testing | 🟡 Smoke-tested only |
-| 10 | Deployment | 🟡 DB is live on Supabase Postgres; API + frontend hosting still to do |
+| 4 | Registration Flows | ✅ Game-first team creation + register-into-events; one team per game |
+| 5 | Admin Panel | 🟡 Games CRUD, teams (registrations + unregister), players, scores, export; no inline edit-player UI |
+| 6 | **Player Panel** | ✅ My Teams (multi-team switcher), roster mgmt, register from feed, standings, profile *(media upload pending)* |
+| 7 | Public Scoreboard | ✅ Complete (15s live polling; podium/medals styling) |
+| 8 | Polish & Edge Cases | ✅ Rate-limit, validation, one-per-game guards, **UI/UX overhaul** |
+| 9 | Testing | 🟡 Script-based regression suites per feature (19/19, 16/16, …); no CI yet |
+| 10 | Deployment | 🟡 DB live on Supabase; API + frontend hosting still to do |
 
 ---
 

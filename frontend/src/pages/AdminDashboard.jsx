@@ -4,9 +4,55 @@
  */
 
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
+
+// ─── Shared helpers ───────────────────────────────────
+const fmtDate = (iso) => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? null : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+};
+
+// Date-driven lifecycle phase for a tournament.
+function eventPhase(g) {
+  if (g.status !== 'active') return { label: 'Inactive', color: 'var(--text-muted)', bg: 'rgba(255,255,255,0.06)' };
+  const now = Date.now();
+  const s = g.start_date ? new Date(g.start_date).getTime() : null;
+  const e = g.end_date ? new Date(g.end_date).getTime() : null;
+  if (e && e < now) return { label: 'Completed', color: 'var(--text-muted)', bg: 'rgba(255,255,255,0.06)' };
+  if (s && s > now) return { label: 'Upcoming', color: 'var(--neon-blue)', bg: 'rgba(0,212,255,0.12)' };
+  return { label: 'Ongoing', color: 'var(--neon-cyan)', bg: 'rgba(6,255,210,0.12)' };
+}
+
+function PhaseBadge({ g }) {
+  const p = eventPhase(g);
+  return <span className="badge" style={{ background: p.bg, color: p.color, border: `1px solid ${p.color}` }}>{p.label}</span>;
+}
+
+// Sidebar nav item with an active accent bar (matches the player dashboard).
+function NavButton({ active, onClick, children }) {
+  return (
+    <button
+      onClick={onClick}
+      className="btn btn-secondary btn-sm"
+      style={{
+        justifyContent: 'flex-start',
+        gap: '0.55rem',
+        border: '1px solid transparent',
+        borderLeft: `3px solid ${active ? 'var(--neon-blue)' : 'transparent'}`,
+        borderRadius: 'var(--radius-sm)',
+        background: active ? 'linear-gradient(90deg, rgba(0, 212, 255, 0.16), rgba(0, 212, 255, 0.02))' : 'transparent',
+        color: active ? 'var(--neon-blue)' : 'var(--text-secondary)',
+        boxShadow: active ? 'inset 0 0 20px rgba(0, 212, 255, 0.08)' : 'none',
+        backdropFilter: 'none',
+      }}
+    >
+      {children}
+    </button>
+  );
+}
 
 export default function AdminDashboard() {
   const { logout, user } = useAuth();
@@ -64,7 +110,6 @@ export default function AdminDashboard() {
         background: 'var(--bg-secondary)',
         borderRight: '1px solid var(--border-color)',
         display: 'flex',
-        flexDirection: 'col',
         flexDirection: 'column',
         padding: 'var(--space-lg)'
       }}>
@@ -74,94 +119,18 @@ export default function AdminDashboard() {
             <span style={{ color: 'var(--neon-blue)' }}>GG</span>BOARD
           </h2>
           <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px' }}>
-            Admin Console
+            Organizer Console
           </span>
         </div>
 
         {/* Navigation Items */}
         <nav style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-xs)', flexGrow: 1 }}>
-          <button
-            onClick={() => setActiveTab('overview')}
-            className={`btn btn-secondary btn-sm`}
-            style={{
-              justifyContent: 'flex-start',
-              background: activeTab === 'overview' ? 'rgba(0, 212, 255, 0.08)' : 'transparent',
-              borderColor: activeTab === 'overview' ? 'var(--neon-blue)' : 'transparent',
-              color: activeTab === 'overview' ? 'var(--neon-blue)' : 'var(--text-secondary)'
-            }}
-          >
-            📊 Dashboard Overview
-          </button>
-
-          <button
-            id="tab-games"
-            onClick={() => setActiveTab('games')}
-            className={`btn btn-secondary btn-sm`}
-            style={{
-              justifyContent: 'flex-start',
-              background: activeTab === 'games' ? 'rgba(0, 212, 255, 0.08)' : 'transparent',
-              borderColor: activeTab === 'games' ? 'var(--neon-blue)' : 'transparent',
-              color: activeTab === 'games' ? 'var(--neon-blue)' : 'var(--text-secondary)'
-            }}
-          >
-            🎮 Tournaments / Games
-          </button>
-
-          <button
-            id="tab-teams"
-            onClick={() => setActiveTab('teams')}
-            className={`btn btn-secondary btn-sm`}
-            style={{
-              justifyContent: 'flex-start',
-              background: activeTab === 'teams' ? 'rgba(0, 212, 255, 0.08)' : 'transparent',
-              borderColor: activeTab === 'teams' ? 'var(--neon-blue)' : 'transparent',
-              color: activeTab === 'teams' ? 'var(--neon-blue)' : 'var(--text-secondary)'
-            }}
-          >
-            🛡️ Team Roster
-          </button>
-
-          <button
-            id="tab-players"
-            onClick={() => setActiveTab('players')}
-            className={`btn btn-secondary btn-sm`}
-            style={{
-              justifyContent: 'flex-start',
-              background: activeTab === 'players' ? 'rgba(0, 212, 255, 0.08)' : 'transparent',
-              borderColor: activeTab === 'players' ? 'var(--neon-blue)' : 'transparent',
-              color: activeTab === 'players' ? 'var(--neon-blue)' : 'var(--text-secondary)'
-            }}
-          >
-            👤 Player Management
-          </button>
-
-          <button
-            id="tab-scores"
-            onClick={() => setActiveTab('scores')}
-            className={`btn btn-secondary btn-sm`}
-            style={{
-              justifyContent: 'flex-start',
-              background: activeTab === 'scores' ? 'rgba(0, 212, 255, 0.08)' : 'transparent',
-              borderColor: activeTab === 'scores' ? 'var(--neon-blue)' : 'transparent',
-              color: activeTab === 'scores' ? 'var(--neon-blue)' : 'var(--text-secondary)'
-            }}
-          >
-            🏆 Score Upload
-          </button>
-
-          <button
-            id="tab-export"
-            onClick={() => setActiveTab('export')}
-            className={`btn btn-secondary btn-sm`}
-            style={{
-              justifyContent: 'flex-start',
-              background: activeTab === 'export' ? 'rgba(0, 212, 255, 0.08)' : 'transparent',
-              borderColor: activeTab === 'export' ? 'var(--neon-blue)' : 'transparent',
-              color: activeTab === 'export' ? 'var(--neon-blue)' : 'var(--text-secondary)'
-            }}
-          >
-            📥 Data Export Tool
-          </button>
+          <NavButton active={activeTab === 'overview'} onClick={() => setActiveTab('overview')}>📊 Overview</NavButton>
+          <NavButton active={activeTab === 'games'} onClick={() => setActiveTab('games')}>🎮 Tournaments</NavButton>
+          <NavButton active={activeTab === 'teams'} onClick={() => setActiveTab('teams')}>🛡️ Teams</NavButton>
+          <NavButton active={activeTab === 'players'} onClick={() => setActiveTab('players')}>👤 Players</NavButton>
+          <NavButton active={activeTab === 'scores'} onClick={() => setActiveTab('scores')}>🏆 Scores</NavButton>
+          <NavButton active={activeTab === 'export'} onClick={() => setActiveTab('export')}>📥 Export</NavButton>
         </nav>
 
         {/* Footer info & Logout */}
@@ -210,37 +179,86 @@ export default function AdminDashboard() {
 }
 
 // ─── 1. OVERVIEW TAB ──────────────────────────────────
-function OverviewTab({ stats, user, setActiveTab }) {
+function OverviewTab({ user, setActiveTab }) {
+  const [games, setGames] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.get('/games/all').then((res) => setGames(res.data.games || [])).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const ongoing = games.filter((g) => eventPhase(g).label === 'Ongoing').length;
+  const upcoming = games.filter((g) => eventPhase(g).label === 'Upcoming').length;
+  const totalReg = games.reduce((n, g) => n + (g.team_count || 0), 0);
+  const order = { Ongoing: 0, Upcoming: 1, Completed: 2, Inactive: 3 };
+  const sorted = [...games].sort((a, b) => order[eventPhase(a).label] - order[eventPhase(b).label]);
+
   return (
     <div style={{ animation: 'fadeIn var(--transition-base)' }}>
       <div className="page-header">
-        <h1 className="page-title">Welcome Back, {user?.displayName}!</h1>
-        <p className="page-subtitle">Tournament command center overview and real-time operations stats.</p>
+        <h1 className="page-title">Welcome back, {user?.displayName}!</h1>
+        <p className="page-subtitle">Your tournaments, registrations, and standings at a glance.</p>
       </div>
 
       <div className="stats-grid">
         <div className="stat-card" onClick={() => setActiveTab('games')} style={{ cursor: 'pointer' }}>
-          <div className="stat-value">{stats.games}</div>
-          <div className="stat-label">Active Tournaments</div>
+          <div className="stat-value">{games.length}</div>
+          <div className="stat-label">Tournaments</div>
+        </div>
+        <div className="stat-card" onClick={() => setActiveTab('games')} style={{ cursor: 'pointer' }}>
+          <div className="stat-value">{ongoing}</div>
+          <div className="stat-label">Ongoing</div>
+        </div>
+        <div className="stat-card" onClick={() => setActiveTab('games')} style={{ cursor: 'pointer' }}>
+          <div className="stat-value">{upcoming}</div>
+          <div className="stat-label">Upcoming</div>
         </div>
         <div className="stat-card" onClick={() => setActiveTab('teams')} style={{ cursor: 'pointer' }}>
-          <div className="stat-value">{stats.teams}</div>
+          <div className="stat-value">{totalReg}</div>
           <div className="stat-label">Registered Teams</div>
-        </div>
-        <div className="stat-card" onClick={() => setActiveTab('players')} style={{ cursor: 'pointer' }}>
-          <div className="stat-value">{stats.players}</div>
-          <div className="stat-label">Total Players</div>
         </div>
       </div>
 
-      <div className="card card-glow" style={{ marginTop: 'var(--space-xl)' }}>
-        <h3 style={{ marginBottom: 'var(--space-md)', color: 'var(--neon-blue)' }}>Quick Actions</h3>
-        <div style={{ display: 'flex', gap: 'var(--space-md)', flexWrap: 'wrap' }}>
-          <button className="btn btn-primary btn-sm" onClick={() => setActiveTab('games')}>➕ Create New Tournament</button>
-          <button className="btn btn-secondary btn-sm" onClick={() => setActiveTab('scores')}>✏️ Update Team Standings</button>
-          <button className="btn btn-secondary btn-sm" onClick={() => setActiveTab('export')}>📊 Export CSV Records</button>
+      <section className="card" style={{ marginTop: 'var(--space-xl)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-md)' }}>
+          <h3 style={{ margin: 0 }}>Your Tournaments</h3>
+          <button className="btn btn-primary btn-sm" onClick={() => setActiveTab('games')}>➕ New Tournament</button>
         </div>
-      </div>
+
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: 'var(--space-xl)' }}><span className="spinner"></span></div>
+        ) : games.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-state-icon">🎮</div>
+            <p className="empty-state-text">No tournaments yet — create your first one.</p>
+            <button className="btn btn-primary btn-sm" onClick={() => setActiveTab('games')}>Create Tournament</button>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 'var(--space-md)' }}>
+            {sorted.map((g) => (
+              <div key={g.id} style={{ border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: 'var(--space-md)', display: 'flex', flexDirection: 'column', gap: '0.5rem', background: 'var(--surface-card)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
+                  <div>
+                    <div style={{ fontWeight: 600 }}>{g.tournament_name}</div>
+                    <span className="badge badge-active" style={{ fontFamily: 'var(--font-heading)', marginTop: 4 }}>{g.game_title}</span>
+                  </div>
+                  <PhaseBadge g={g} />
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem 0.9rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  <span>🛡️ {g.team_count || 0} teams</span>
+                  <span>🎯 {g.num_rounds} rounds</span>
+                  {fmtDate(g.start_date) && <span>🗓️ {fmtDate(g.start_date)}</span>}
+                  {g.prize_pool && <span style={{ color: 'var(--neon-cyan)' }}>🏆 {g.prize_pool}</span>}
+                </div>
+                <div style={{ display: 'flex', gap: '0.4rem', marginTop: 'auto' }}>
+                  <button className="btn btn-secondary btn-sm" style={{ flex: 1, padding: '0.35rem' }} onClick={() => setActiveTab('scores')}>Scores</button>
+                  <Link to="/scoreboard" className="btn btn-secondary btn-sm" style={{ flex: 1, padding: '0.35rem', textAlign: 'center' }}>Scoreboard</Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
@@ -400,9 +418,10 @@ function GamesTab({ showToast }) {
                 <thead>
                   <tr>
                     <th>Title / Name</th>
-                    <th style={{ width: '80px', textAlign: 'center' }}>Rounds</th>
-                    <th style={{ width: '100px' }}>Status</th>
-                    <th style={{ width: '120px', textAlign: 'right' }}>Actions</th>
+                    <th style={{ width: '110px' }}>Phase</th>
+                    <th style={{ width: '90px', textAlign: 'center' }}>Teams</th>
+                    <th style={{ width: '70px', textAlign: 'center' }}>Rounds</th>
+                    <th style={{ width: '150px', textAlign: 'right' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -411,14 +430,18 @@ function GamesTab({ showToast }) {
                       <td>
                         <div style={{ fontWeight: 600 }}>{g.game_title}</div>
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{g.tournament_name}</div>
+                        {(fmtDate(g.start_date) || g.prize_pool) && (
+                          <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                            {fmtDate(g.start_date) && <span>🗓️ {fmtDate(g.start_date)}</span>}
+                            {g.prize_pool && <span style={{ color: 'var(--neon-cyan)', marginLeft: 8 }}>🏆 {g.prize_pool}</span>}
+                          </div>
+                        )}
                       </td>
+                      <td><PhaseBadge g={g} /></td>
+                      <td style={{ textAlign: 'center' }}><span className="badge badge-active">{g.team_count || 0}</span></td>
                       <td style={{ textAlign: 'center' }}>{g.num_rounds}</td>
-                      <td>
-                        <span className={`badge badge-${g.status}`}>
-                          {g.status}
-                        </span>
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <Link to="/scoreboard" className="btn btn-secondary btn-sm" style={{ padding: '0.25rem 0.5rem', marginRight: '4px' }} title="Public scoreboard">📊</Link>
                         <button className="btn btn-secondary btn-sm" style={{ padding: '0.25rem 0.5rem', marginRight: '4px' }} onClick={() => startEdit(g)}>✏️</button>
                         <button className="btn btn-danger btn-sm" style={{ padding: '0.25rem 0.5rem' }} onClick={() => deleteGame(g.id)}>🗑️</button>
                       </td>
@@ -444,6 +467,7 @@ function TeamsTab({ showToast }) {
   const [showModal, setShowModal] = useState(false);
   const [formData, setFormData] = useState({ team_name: '', leader_name: '', game_id: '' });
   const [success, setSuccess] = useState(null);
+  const [viewTeam, setViewTeam] = useState(null); // registration row being drilled into
 
   const fetchTeams = () => {
     setLoading(true);
@@ -547,7 +571,8 @@ function TeamsTab({ showToast }) {
                     <td style={{ textAlign: 'center' }}>
                       <span className="badge badge-active">{t.player_count}</span>
                     </td>
-                    <td style={{ textAlign: 'right' }}>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <button className="btn btn-secondary btn-sm" style={{ padding: '0.25rem 0.5rem', marginRight: '4px' }} title="View roster" onClick={() => setViewTeam(t)}>👁️</button>
                       <button className="btn btn-danger btn-sm" style={{ padding: '0.25rem 0.5rem' }} title="Remove from this tournament" onClick={() => unregisterTeam(t)}>🗑️</button>
                     </td>
                   </tr>
@@ -636,6 +661,8 @@ function TeamsTab({ showToast }) {
           </div>
         </div>
       )}
+
+      {viewTeam && <TeamRosterModal reg={viewTeam} onClose={() => setViewTeam(null)} />}
     </div>
   );
 
@@ -644,6 +671,67 @@ function TeamsTab({ showToast }) {
       ? t.tournament_name.substring(0, 25) + '...'
       : t.tournament_name;
   }
+}
+
+// Drill into a registered team: its roster within this tournament + leader + code.
+function TeamRosterModal({ reg, onClose }) {
+  const [players, setPlayers] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.get(`/players/all?team_id=${reg.team_id}&game_id=${reg.game_id}`)
+      .then((res) => setPlayers(res.data.players || []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [reg.team_id, reg.game_id]);
+
+  return (
+    <div className="modal-backdrop">
+      <div className="modal" style={{ maxWidth: 620 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 'var(--space-sm)' }}>
+          <div>
+            <h2 className="modal-title" style={{ marginBottom: 4 }}>{reg.team_name}</h2>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{reg.game} · {reg.tournament_name}</p>
+          </div>
+          <span className="badge badge-active" style={{ fontFamily: 'var(--font-heading)' }}>{reg.game}</span>
+        </div>
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem 1.2rem', fontSize: '0.82rem', color: 'var(--text-secondary)', margin: 'var(--space-md) 0' }}>
+          <span>👑 Leader: <strong>{reg.leader_name || '—'}</strong> {reg.leader_username && <span style={{ color: 'var(--text-muted)' }}>@{reg.leader_username}</span>}</span>
+          <span>🔑 Code: <code style={{ color: 'var(--neon-cyan)', fontFamily: 'var(--font-heading)', letterSpacing: '1px' }}>{reg.unique_code}</code></span>
+        </div>
+
+        <h3 style={{ fontSize: '0.9rem', marginBottom: 'var(--space-sm)' }}>Roster ({players.length})</h3>
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: 'var(--space-lg)' }}><span className="spinner"></span></div>
+        ) : players.length === 0 ? (
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No roster members have joined yet.</p>
+        ) : (
+          <div className="table-container">
+            <table className="data-table">
+              <thead><tr><th>Player</th><th>In-Game Name</th><th>Contact</th></tr></thead>
+              <tbody>
+                {players.map((p) => (
+                  <tr key={p.id}>
+                    <td style={{ fontWeight: 600 }}>{p.full_name}</td>
+                    <td><span className="badge badge-active" style={{ fontFamily: 'var(--font-heading)' }}>{p.in_game_name}</span></td>
+                    <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                      <div>{p.email || '—'}</div>
+                      <div>{p.phone || '—'}</div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div className="modal-actions">
+          <button className="btn btn-primary btn-sm" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ─── 4. PLAYERS TAB (CRUD) ────────────────────────────
@@ -705,6 +793,18 @@ function PlayersTab({ showToast }) {
       fetchPlayers();
     } catch (err) {
       showToast('Failed to remove player.', 'error');
+    }
+  };
+
+  const [editing, setEditing] = useState(null);
+  const saveEdit = async (id, data) => {
+    try {
+      await api.patch(`/players/${id}`, data);
+      showToast('Player updated.');
+      setEditing(null);
+      fetchPlayers();
+    } catch (err) {
+      showToast(err.response?.data?.error || 'Failed to update player.', 'error');
     }
   };
 
@@ -786,7 +886,8 @@ function PlayersTab({ showToast }) {
                       <div style={{ fontWeight: 500 }}>{p.team_name}</div>
                       <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{p.game_title}</div>
                     </td>
-                    <td style={{ textAlign: 'right' }}>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <button className="btn btn-secondary btn-sm" style={{ padding: '0.25rem 0.5rem', marginRight: '4px' }} onClick={() => setEditing(p)}>✏️</button>
                       <button className="btn btn-danger btn-sm" style={{ padding: '0.25rem 0.5rem' }} onClick={() => deletePlayer(p.id)}>🗑️</button>
                     </td>
                   </tr>
@@ -836,6 +937,47 @@ function PlayersTab({ showToast }) {
           </div>
         </div>
       )}
+
+      {editing && <EditPlayerModal player={editing} onCancel={() => setEditing(null)} onSave={saveEdit} />}
+    </div>
+  );
+}
+
+// Inline edit for an existing roster player (admin).
+function EditPlayerModal({ player, onCancel, onSave }) {
+  const [form, setForm] = useState({
+    full_name: player.full_name || '', in_game_name: player.in_game_name || '',
+    email: player.email || '', phone: player.phone || '',
+  });
+  const change = (e) => setForm({ ...form, [e.target.name]: e.target.value });
+  return (
+    <div className="modal-backdrop">
+      <div className="modal">
+        <h2 className="modal-title">Edit Player</h2>
+        <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 'var(--space-md)' }}>{player.team_name} · {player.game_title}</p>
+        <form onSubmit={(e) => { e.preventDefault(); onSave(player.id, form); }}>
+          <div className="form-group">
+            <label className="form-label">Full Name</label>
+            <input name="full_name" className="form-input" value={form.full_name} onChange={change} required />
+          </div>
+          <div className="form-group">
+            <label className="form-label">In-Game Name</label>
+            <input name="in_game_name" className="form-input" value={form.in_game_name} onChange={change} required />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Email</label>
+            <input name="email" type="email" className="form-input" value={form.email} onChange={change} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Phone</label>
+            <input name="phone" className="form-input" value={form.phone} onChange={change} />
+          </div>
+          <div className="modal-actions">
+            <button type="button" className="btn btn-secondary btn-sm" onClick={onCancel}>Cancel</button>
+            <button type="submit" className="btn btn-primary btn-sm">Save Changes</button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
@@ -1005,10 +1147,21 @@ function ScoresTab({ showToast }) {
 }
 
 // ─── 6. EXPORT TAB ───────────────────────────────────
+const FIELD_LABELS = {
+  team_name: 'Team', full_name: 'Full Name', in_game_name: 'In-Game Name',
+  email: 'Email', phone: 'Phone', game_title: 'Game', round_scores: 'Round Scores', total_score: 'Total Score',
+};
+const FIELDS_BY_TYPE = {
+  combined: ['team_name', 'full_name', 'in_game_name', 'round_scores', 'total_score', 'game_title'],
+  players: ['team_name', 'full_name', 'in_game_name', 'email', 'phone', 'game_title'],
+  scores: ['team_name', 'round_scores', 'total_score', 'game_title'],
+};
+
 function ExportTab({ showToast }) {
   const [games, setGames] = useState([]);
   const [selectedGameId, setSelectedGameId] = useState('');
   const [dataType, setDataType] = useState('combined');
+  const [fields, setFields] = useState(FIELDS_BY_TYPE.combined);
   const [exportLoading, setExportLoading] = useState(false);
 
   useEffect(() => {
@@ -1017,12 +1170,16 @@ function ExportTab({ showToast }) {
     }).catch(() => {});
   }, []);
 
+  const pickType = (dt) => { setDataType(dt); setFields(FIELDS_BY_TYPE[dt]); };
+  const toggleField = (k) => setFields((f) => (f.includes(k) ? f.filter((x) => x !== k) : [...f, k]));
+
   const handleExport = async () => {
     setExportLoading(true);
     try {
       const response = await api.post('/export', {
         data_type: dataType,
-        game_id: selectedGameId ? parseInt(selectedGameId) : null
+        game_id: selectedGameId ? parseInt(selectedGameId) : null,
+        fields: FIELDS_BY_TYPE[dataType].filter((k) => fields.includes(k)), // canonical order
       }, { responseType: 'blob' });
 
       // Create blob download link
@@ -1056,22 +1213,43 @@ function ExportTab({ showToast }) {
           <label className="form-label">1. Choose Data Category</label>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', cursor: 'pointer' }}>
-              <input type="radio" name="exportType" checked={dataType === 'combined'} onChange={() => setDataType('combined')} />
-              <span>Combined Data (Squad Roster + aggregate scoreboard standing points)</span>
+              <input type="radio" name="exportType" checked={dataType === 'combined'} onChange={() => pickType('combined')} />
+              <span>Combined (roster + scoreboard totals)</span>
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', cursor: 'pointer' }}>
-              <input type="radio" name="exportType" checked={dataType === 'players'} onChange={() => setDataType('players')} />
-              <span>Squad Player roster lists only</span>
+              <input type="radio" name="exportType" checked={dataType === 'players'} onChange={() => pickType('players')} />
+              <span>Player rosters only</span>
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', cursor: 'pointer' }}>
-              <input type="radio" name="exportType" checked={dataType === 'scores'} onChange={() => setDataType('scores')} />
-              <span>Live aggregates scoreboard standings only</span>
+              <input type="radio" name="exportType" checked={dataType === 'scores'} onChange={() => pickType('scores')} />
+              <span>Scoreboard standings only</span>
             </label>
           </div>
         </div>
 
         <div className="form-group">
-          <label className="form-label">2. Filter by Tournament (Optional)</label>
+          <label className="form-label">2. Columns ({fields.length} selected)</label>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 'var(--space-xs)' }}>
+            {FIELDS_BY_TYPE[dataType].map((k) => {
+              const on = fields.includes(k);
+              return (
+                <label key={k} style={{
+                  display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer',
+                  padding: '0.4rem 0.6rem', borderRadius: 'var(--radius-md)', fontSize: '0.82rem',
+                  border: `1px solid ${on ? 'var(--neon-blue)' : 'var(--border-color)'}`,
+                  background: on ? 'rgba(0, 212, 255, 0.08)' : 'transparent',
+                  color: on ? 'var(--neon-blue)' : 'var(--text-secondary)',
+                }}>
+                  <input type="checkbox" checked={on} onChange={() => toggleField(k)} style={{ accentColor: 'var(--neon-blue)' }} />
+                  {FIELD_LABELS[k] || k}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">3. Filter by Tournament (Optional)</label>
           <select
             id="export-game-select"
             className="form-select"
@@ -1091,9 +1269,9 @@ function ExportTab({ showToast }) {
             onClick={handleExport}
             className="btn btn-primary"
             style={{ width: '100%', padding: '1rem' }}
-            disabled={exportLoading}
+            disabled={exportLoading || fields.length === 0}
           >
-            {exportLoading ? <span className="spinner"></span> : '📥 Download CSV Export'}
+            {exportLoading ? <span className="spinner"></span> : fields.length === 0 ? 'Select at least one column' : '📥 Download CSV Export'}
           </button>
         </div>
       </section>
