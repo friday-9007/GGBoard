@@ -5,8 +5,7 @@
   "main": "server.js",
   "scripts": {
     "dev": "npx nodemon server.js",
-    "start": "node server.js",
-    "seed": "node database/seed.js"
+    "start": "node server.js"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

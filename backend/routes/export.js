@@ -23,7 +23,7 @@ router.post('/', requireAdmin, asyncHandler(async (req, res) => {
   if (data_type === 'players') {
     // players on teams registered in the organizer's tournaments
     const some = gid ? { game_id: gid, game: { organizer_id: me } } : { game: { organizer_id: me } };
-    const found = await prisma.player.findMany({
+    const found = await prisma.teamMember.findMany({
       where: { team: { scores: { some } } },
       include: { team: { select: { team_name: true, game: true } } },
       orderBy: { created_at: 'desc' },
@@ -55,7 +55,7 @@ router.post('/', requireAdmin, asyncHandler(async (req, res) => {
       orderBy: { total_score: 'desc' },
       include: {
         game: { select: { game_title: true, tournament_name: true } },
-        team: { select: { team_name: true, players: { select: { full_name: true, in_game_name: true } } } },
+        team: { select: { team_name: true, members: { select: { full_name: true, in_game_name: true } } } },
       },
     });
     rows = [];
@@ -64,7 +64,7 @@ router.post('/', requireAdmin, asyncHandler(async (req, res) => {
         team_name: r.team?.team_name ?? null, tournament_name: r.game?.tournament_name ?? null,
         game_title: r.game?.game_title ?? null, round_scores: JSON.stringify(r.round_scores ?? []), total_score: r.total_score,
       };
-      const ps = r.team?.players || [];
+      const ps = r.team?.members || [];
       if (ps.length === 0) rows.push({ ...base, full_name: '', in_game_name: '' });
       else ps.forEach((p) => rows.push({ ...base, full_name: p.full_name, in_game_name: p.in_game_name }));
     }

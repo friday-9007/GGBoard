@@ -10,13 +10,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
-
-// Competitive titles offered in the profile picker. Add/remove freely.
-const ESPORTS_GAMES = [
-  'Valorant', 'BGMI', 'Free Fire', 'CS2', 'COD Mobile', 'PUBG PC',
-  'Dota 2', 'League of Legends', 'Apex Legends', 'Fortnite',
-  'Rocket League', 'Rainbow Six Siege', 'Overwatch 2', 'Mobile Legends', 'eFootball',
-];
+import { ESPORTS_GAMES } from '../utils/games';
 
 // Per-game identity fields. Two stored slots (ign, uid) relabelled per game.
 // `tagPrefix: '#'` renders/joins as "Name#Suffix" (Riot ID, Activision ID, BattleTag).
@@ -24,6 +18,7 @@ const RIOT_ID = { f1: 'Game Name', f2: 'Tagline', tagPrefix: '#', f2hint: 'e.g. 
 const GAME_ID_CONFIG = {
   'Valorant':          RIOT_ID,
   'League of Legends': RIOT_ID,
+  'The Finals':        { f1: 'Embark ID', f2: 'Number', tagPrefix: '#', f2hint: 'digits after #' },
   'BGMI':              { f1: 'Character Name', f2: 'Character ID', f2hint: 'Numeric ID' },
   'Free Fire':         { f1: 'Nickname', f2: 'UID', f2hint: 'Numeric UID' },
   'CS2':               { f1: 'Steam Name', f2: 'Friend Code', f2hint: 'Steam friend code' },
@@ -60,6 +55,7 @@ const GAME_ROLES = {
   'CS2': ['Entry', 'AWPer', 'IGL', 'Support', 'Lurker'],
   'Dota 2': ['Carry', 'Mid', 'Offlane', 'Soft Support', 'Hard Support'],
   'Overwatch 2': ['Tank', 'DPS', 'Support'],
+  'The Finals': ['Light', 'Medium', 'Heavy', 'IGL'],
   'Apex Legends': ['Fragger', 'IGL', 'Support'],
   'Rainbow Six Siege': ['Entry', 'Support', 'Anchor', 'Flex', 'IGL'],
   'Rocket League': ['Striker', 'Midfielder', 'Defender'],
@@ -353,20 +349,33 @@ function fmtDate(iso) {
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
+const PRIZE_LABEL = { cash: 'Cash', gift_card: 'Gift Card', uc: 'UC', other: 'Prize' };
+
 function EventCard({ ev, team, registered, busy, onAction }) {
   const start = fmtDate(ev.start_date);
   const deadline = fmtDate(ev.registration_deadline);
-  const closed = ev.registration_open === false;
   const hasTeam = !!team;               // the caller's team for THIS game (or null)
   const isLeader = hasTeam && team.is_leader;
-  const canAct = !registered && !closed && (!hasTeam || isLeader);
+
+  const notOpen = ev.registration_not_open_yet;
+  const full = ev.registration_full;
+  const deadlineClosed = ev.registration_open === false && !notOpen && !full;
+  const canAct = ev.registration_open !== false && !registered && (!hasTeam || isLeader);
 
   let label;
   if (registered) label = '✓ Registered';
-  else if (closed) label = 'Registration closed';
+  else if (full) label = 'Registration full';
+  else if (notOpen) label = 'Registration not open yet';
+  else if (deadlineClosed) label = 'Registration closed';
   else if (!hasTeam) label = '➕ Create a team to enter';
-  else if (isLeader) label = '➕ Register this team';
+  else if (isLeader) label = ev.is_paid ? `➕ Register · ₹${ev.entry_fee ?? '?'}` : '➕ Register this team';
   else label = 'Only your captain can register';
+
+  let status = null, statusColor = 'var(--text-muted)';
+  if (notOpen) status = ev.registration_start ? `🔒 Opens ${fmtDate(ev.registration_start)}` : '🔒 Registration not open yet';
+  else if (full) { status = '🚫 Registration full'; statusColor = '#ff4d5e'; }
+  else if (deadlineClosed) { status = '⛔ Registration closed'; statusColor = '#ff4d5e'; }
+  else if (deadline) status = `⏳ Register by ${deadline}`;
 
   return (
     <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
@@ -378,8 +387,8 @@ function EventCard({ ev, team, registered, busy, onAction }) {
         </div>
         {ev.prize_pool && (
           <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px' }}>Prize</div>
-            <div style={{ fontWeight: 700, color: 'var(--neon-cyan)' }}>{ev.prize_pool}</div>
+            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px' }}>{PRIZE_LABEL[ev.prize_type] || 'Prize'}</div>
+            <div style={{ fontWeight: 700, color: 'var(--neon-cyan)' }}>🏆 {ev.prize_pool}</div>
           </div>
         )}
       </div>
@@ -390,15 +399,11 @@ function EventCard({ ev, team, registered, busy, onAction }) {
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem 1rem', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
         {start && <span>🗓️ {start}</span>}
-        <span>🛡️ {ev.registered_teams} team{ev.registered_teams === 1 ? '' : 's'} registered</span>
-        <span>🎯 {ev.num_rounds} rounds</span>
+        <span>🛡️ {ev.registered_teams}{ev.team_limit != null ? `/${ev.team_limit}` : ''} team{ev.registered_teams === 1 && ev.team_limit == null ? '' : 's'}</span>
+        <span style={{ color: ev.is_paid ? 'var(--neon-cyan)' : 'var(--text-muted)' }}>{ev.is_paid ? `💰 ₹${ev.entry_fee ?? '?'} entry` : '🆓 Free entry'}</span>
       </div>
 
-      {deadline && (
-        <p style={{ margin: 0, fontSize: '0.75rem', color: closed ? 'var(--neon-red, #ff4d5e)' : 'var(--text-muted)' }}>
-          {closed ? '⛔ Registration closed' : `⏳ Register by ${deadline}`}
-        </p>
-      )}
+      {status && <p style={{ margin: 0, fontSize: '0.75rem', color: statusColor }}>{status}</p>}
 
       <div style={{ marginTop: 'auto', paddingTop: 'var(--space-sm)' }}>
         <button

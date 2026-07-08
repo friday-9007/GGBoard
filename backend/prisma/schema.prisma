@@ -1,7 +1,7 @@
 // ggBoard — Prisma schema (Prisma 6, classic client).
-// Field names are snake_case to match the Postgres columns AND the existing JSON
-// API contract, so route responses stay identical and the frontend is unchanged.
-// The DB is the source of truth (schema managed via Supabase migrations).
+// Organizers and players are SEPARATE account tables. The old unified `users`
+// table is gone. Team rosters live in `team_members` (was the old `players`).
+// snake_case field names keep the JSON API contract identical.
 
 generator client {
   provider = "prisma-client-js"
@@ -9,17 +9,30 @@ generator client {
 
 datasource db {
   provider  = "postgresql"
-  url       = env("DATABASE_URL") // Supabase transaction pooler (runtime)
-  directUrl = env("DIRECT_URL") // direct connection (CLI migrations, if ever used)
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
-model User {
+// ─── Organizer accounts ───
+model Organizer {
   id            Int      @id @default(autoincrement())
   username      String   @unique
   password_hash String
-  role          String
-  role_selected Boolean  @default(true)
   display_name  String?
+  created_at    DateTime @default(now())
+
+  organized_games     Game[]       @relation("GameOrganizer")
+  reviewed_submissions Submission[] @relation("SubmissionReviewer")
+
+  @@map("organizers")
+}
+
+// ─── Player accounts (login + profile) ───
+model Player {
+  id               Int       @id @default(autoincrement())
+  username         String    @unique
+  password_hash    String
+  display_name     String?
   email            String?
   phone            String?
   games            Json      @default(dbgenerated("'[]'::jsonb")) // [{ game, ign, uid, rank, role }]
@@ -33,68 +46,75 @@ model User {
   bio              String?
   created_at       DateTime  @default(now())
 
-  organized_games Game[]       @relation("GameOrganizer")
-  led_teams       Team[]       @relation("TeamLeader")
-  player_profiles Player[]     @relation("PlayerAccount")
-  uploads         Submission[] @relation("SubmissionUploader")
-  reviews         Submission[] @relation("SubmissionReviewer")
+  led_teams   Team[]       @relation("TeamLeader")
+  memberships TeamMember[] @relation("MemberAccount")
+  uploads     Submission[] @relation("SubmissionUploader")
 
-  @@map("users")
+  @@map("players")
 }
 
+// ─── Games / tournaments ───
 model Game {
   id                    Int       @id @default(autoincrement())
   game_title            String
   tournament_name       String
   status                String    @default("active")
-  num_rounds            Int       @default(3)
+  num_rounds            Int       @default(3) // set later (after registration closes), not at creation
   description           String?
-  start_date            DateTime?
+  start_date            DateTime? // event start
   end_date              DateTime?
-  registration_deadline DateTime?
-  prize_pool            String?
+  registration_start    DateTime? // registration opens
+  registration_deadline DateTime? // registration closes (extendable)
+  team_limit            Int? // max registered teams; null = unlimited
+  is_paid               Boolean   @default(false)
+  entry_fee             Int? // per-team fee (whole currency units)
+  prize_pool            String? // prize amount / value
+  prize_type            String? // cash | gift_card | uc | other
   organizer_id          Int?
   created_at            DateTime  @default(now())
 
-  organizer   User?        @relation("GameOrganizer", fields: [organizer_id], references: [id], onDelete: Cascade)
+  organizer   Organizer?   @relation("GameOrganizer", fields: [organizer_id], references: [id], onDelete: Cascade)
   scores      Score[]
   submissions Submission[]
 
   @@map("games")
 }
 
+// ─── Teams (one game each; lasting roster) ───
 model Team {
   id          Int      @id @default(autoincrement())
   team_name   String
   unique_code String   @unique
-  game        String // the game title this team plays (e.g. "Valorant")
+  game        String
   leader_id   Int?
   created_at  DateTime @default(now())
 
-  leader      User?        @relation("TeamLeader", fields: [leader_id], references: [id], onDelete: SetNull)
-  players     Player[]
-  scores      Score[] // each row = a registration into a tournament (game_id)
+  leader      Player?      @relation("TeamLeader", fields: [leader_id], references: [id], onDelete: SetNull)
+  members     TeamMember[]
+  scores      Score[]
   submissions Submission[]
 
   @@map("teams")
 }
 
-model Player {
+// ─── Team roster entries ───
+model TeamMember {
   id           Int      @id @default(autoincrement())
   full_name    String
   in_game_name String
   email        String?
   phone        String?
   team_id      Int
-  user_id      Int?
+  player_id    Int?
   created_at   DateTime @default(now())
 
-  team Team  @relation(fields: [team_id], references: [id], onDelete: Cascade)
-  user User? @relation("PlayerAccount", fields: [user_id], references: [id], onDelete: SetNull)
+  team   Team    @relation(fields: [team_id], references: [id], onDelete: Cascade)
+  player Player? @relation("MemberAccount", fields: [player_id], references: [id], onDelete: SetNull)
 
-  @@map("players")
+  @@map("team_members")
 }
 
+// ─── Scores (a row = a team's registration into a tournament) ───
 model Score {
   id           Int      @id @default(autoincrement())
   team_id      Int
@@ -110,11 +130,12 @@ model Score {
   @@map("scores")
 }
 
+// ─── Media submissions (gameplay verification) ───
 model Submission {
   id           Int       @id @default(autoincrement())
   game_id      Int?
   team_id      Int?
-  user_id      Int?
+  player_id    Int?
   kind         String
   purpose      String    @default("gameplay_verification")
   storage_path String
@@ -124,10 +145,10 @@ model Submission {
   created_at   DateTime  @default(now())
   reviewed_at  DateTime?
 
-  game     Game? @relation(fields: [game_id], references: [id], onDelete: Cascade)
-  team     Team? @relation(fields: [team_id], references: [id], onDelete: Cascade)
-  uploader User? @relation("SubmissionUploader", fields: [user_id], references: [id], onDelete: SetNull)
-  reviewer User? @relation("SubmissionReviewer", fields: [reviewed_by], references: [id], onDelete: SetNull)
+  game     Game?      @relation(fields: [game_id], references: [id], onDelete: Cascade)
+  team     Team?      @relation(fields: [team_id], references: [id], onDelete: Cascade)
+  uploader Player?    @relation("SubmissionUploader", fields: [player_id], references: [id], onDelete: SetNull)
+  reviewer Organizer? @relation("SubmissionReviewer", fields: [reviewed_by], references: [id], onDelete: SetNull)
 
   @@map("submissions")
 }

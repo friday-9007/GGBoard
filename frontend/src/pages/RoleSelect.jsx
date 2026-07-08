@@ -1,11 +1,12 @@
 /**
- * Role Selection — step 2 of sign-up (and forced on next sign-in if skipped).
- * The account already exists (created at /auth/signup) in a pending state; here
- * the user picks Organizer or Player, which finalises the role on the account.
+ * Role Selection — step 2 of sign-up.
+ * Credentials were entered on /auth; here the visitor picks Organizer or Player,
+ * and the account is created in the matching table. (No role-less account is ever
+ * persisted — creation happens only when a role is chosen.)
  */
 
 import { useState } from 'react';
-import { useNavigate, Navigate } from 'react-router-dom';
+import { useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import './AuthPages.css';
@@ -13,31 +14,30 @@ import './AuthPage.css';
 
 export default function RoleSelect() {
   const navigate = useNavigate();
-  const { user, isAuthenticated, loading: authLoading, login } = useAuth();
-  const [role, setRole] = useState(null);
+  const location = useLocation();
+  const { login } = useAuth();
+  const creds = location.state; // { username, password, display_name }
+  const [busy, setBusy] = useState(null); // which role is submitting
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
 
-  if (authLoading) return null;
-  // Must be signed in to have a pending account to finalise
-  if (!isAuthenticated) return <Navigate to="/auth?mode=signup" replace />;
-  // Role already chosen → nothing to do here
-  if (user && !user.rolePending) {
-    return <Navigate to={user.role === 'admin' ? '/admin/dashboard' : '/player'} replace />;
-  }
+  // Reached without going through sign-up → send back to the sign-up form.
+  if (!creds?.username || !creds?.password) return <Navigate to="/auth?mode=signup" replace />;
 
-  const choose = async (picked) => {
-    setRole(picked);
+  const choose = async (role) => {
+    setBusy(role);
     setError('');
-    setLoading(true);
     try {
-      const res = await api.post('/auth/select-role', { role: picked });
+      const res = await api.post('/auth/signup', {
+        role,
+        username: creds.username,
+        password: creds.password,
+        display_name: creds.display_name,
+      });
       login(res.data.user, res.data.token);
       navigate(res.data.user.role === 'admin' ? '/admin/dashboard' : '/player');
     } catch (err) {
-      setError(err.response?.data?.error || 'Could not set your account type. Please try again.');
-      setRole(null);
-      setLoading(false);
+      setError(err.response?.data?.error || 'Could not create your account. Please try again.');
+      setBusy(null);
     }
   };
 
@@ -49,24 +49,29 @@ export default function RoleSelect() {
           <div className="auth-header">
             <div className="auth-icon">🎮</div>
             <h1 className="auth-title">How will you use GGBoard?</h1>
-            <p className="auth-subtitle">Hi {user?.displayName || user?.username} — pick your account type to finish setting up. This step is required.</p>
+            <p className="auth-subtitle">Hi {creds.display_name || creds.username} — pick your account type to finish signing up.</p>
           </div>
 
-          {error && <div className="auth-error">{error}</div>}
+          {error && (
+            <div className="auth-error">
+              {error}{' '}
+              <button type="button" className="auth-link-btn" onClick={() => navigate('/auth?mode=signup')}>Go back</button>
+            </div>
+          )}
 
           <div className="role-cards">
-            <button type="button" className="role-card" disabled={loading} onClick={() => choose('player')}>
+            <button type="button" className="role-card" disabled={!!busy} onClick={() => choose('player')}>
               <div className="role-card-icon">🎮</div>
               <h3>Player</h3>
               <p>Create or join a team and compete in tournaments.</p>
-              {loading && role === 'player' ? <span className="spinner"></span> : <span className="role-card-cta">Continue as Player →</span>}
+              {busy === 'player' ? <span className="spinner"></span> : <span className="role-card-cta">Continue as Player →</span>}
             </button>
 
-            <button type="button" className="role-card" disabled={loading} onClick={() => choose('organizer')}>
+            <button type="button" className="role-card" disabled={!!busy} onClick={() => choose('organizer')}>
               <div className="role-card-icon">🛡️</div>
               <h3>Organizer</h3>
               <p>Host tournaments and manage teams, players, and scores.</p>
-              {loading && role === 'organizer' ? <span className="spinner"></span> : <span className="role-card-cta">Continue as Organizer →</span>}
+              {busy === 'organizer' ? <span className="spinner"></span> : <span className="role-card-cta">Continue as Organizer →</span>}
             </button>
           </div>
 

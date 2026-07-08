@@ -16,7 +16,7 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
-const { teams, games, users, scores } = require('../repositories');
+const { teams, games, players, accounts, scores } = require('../repositories');
 const { requireAdmin, requireTeamLeader, requireAdminOrLeader } = require('../middleware/auth');
 const { generateUniqueCode } = require('../utils/generateCode');
 const { hasCompleteGame } = require('../utils/gameProfile');
@@ -33,7 +33,7 @@ async function generateLeaderUsername(teamName, leaderName) {
   const base = (teamName + '_' + leaderName).toLowerCase().replace(/[^a-z0-9_]/g, '').substring(0, 15);
   let username = base || 'leader';
   let suffix = 1;
-  while (await users.findByUsername(username)) {
+  while (await accounts.usernameTaken(username)) {
     username = `${base || 'leader'}_${suffix}`;
     suffix++;
   }
@@ -100,7 +100,7 @@ router.post('/register', requireTeamLeader, asyncHandler(async (req, res) => {
   const game = await games.findActiveById(gameId);
   if (!game) return res.status(400).json({ error: 'Invalid or inactive tournament.' });
 
-  const me = await users.findById(req.user.id);
+  const me = await players.findById(req.user.id);
   // The team used is the caller's team for this event's game (one per game).
   const team = await teams.userTeamForGame(req.user.id, game.game_title);
   if (!team) {
@@ -109,6 +109,19 @@ router.post('/register', requireTeamLeader, asyncHandler(async (req, res) => {
   if (team.leader_id !== req.user.id) {
     return res.status(403).json({ error: 'Only the team leader can register the team for events.' });
   }
+
+  // Registration window + capacity.
+  const now = Date.now();
+  if (game.registration_start && new Date(game.registration_start).getTime() > now) {
+    return res.status(400).json({ error: 'Registration for this event has not opened yet.' });
+  }
+  if (game.registration_deadline && new Date(game.registration_deadline).getTime() < now) {
+    return res.status(400).json({ error: 'Registration for this event has closed.' });
+  }
+  if (game.team_limit != null && (await scores.countForGame(gameId)) >= game.team_limit) {
+    return res.status(409).json({ error: 'This event is full — the team registration limit has been reached.' });
+  }
+
   if (!hasCompleteGame(me.games, game.game_title)) {
     return res.status(400).json({
       error: `Add your ${game.game_title} in-game name and UID to register for this event.`,

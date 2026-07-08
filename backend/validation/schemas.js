@@ -17,8 +17,9 @@ const loginSchema = z.object({
   password: z.string().min(1, 'Password is required.'),
 });
 
-// Sign-up = credentials only; the role is chosen afterwards on /auth/select-role.
+// Sign-up = role-first: pick organizer/player, which account table to create in.
 const signupSchema = z.object({
+  role: z.enum(['organizer', 'player']),
   username: z.string().trim().min(3, 'Username must be at least 3 characters.').max(30, 'Username is too long.'),
   password: z.string().min(6, 'Password must be at least 6 characters.').max(200),
   display_name: z.string().trim().max(60, 'Display name is too long.').optional(),
@@ -66,16 +67,26 @@ const gameProfileSchema = z.object({
   uid: z.string().trim().min(1, 'UID is required.').max(60),
 });
 
+// '' / null → undefined (leave unset); otherwise a non-negative integer.
+const optionalInt = z.preprocess(
+  (v) => (v === '' || v === null ? undefined : v),
+  z.coerce.number().int().min(0).optional()
+);
+
 const gameCreateSchema = z.object({
   game_title: z.string().trim().min(1, 'Game title is required.').max(80),
   tournament_name: z.string().trim().min(1, 'Tournament name is required.').max(120),
   status: z.enum(['active', 'inactive']).optional(),
-  num_rounds: z.coerce.number().int().min(1).max(20).optional(),
   description: z.string().trim().max(2000).optional(),
-  start_date: optionalDate,
+  start_date: optionalDate,           // event start
   end_date: optionalDate,
-  registration_deadline: optionalDate,
+  registration_start: optionalDate,   // registration opens
+  registration_deadline: optionalDate, // registration closes
+  team_limit: optionalInt,            // max teams; unset = unlimited
+  is_paid: z.boolean().optional(),
+  entry_fee: optionalInt,             // per-team fee
   prize_pool: z.string().trim().max(80).optional(),
+  prize_type: z.enum(['cash', 'gift_card', 'uc', 'other']).optional(),
 });
 
 const scoreUpdateSchema = z.object({

@@ -7,6 +7,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
+import { ESPORTS_GAMES } from '../utils/games';
 
 // ─── Shared helpers ───────────────────────────────────
 const fmtDate = (iso) => {
@@ -263,14 +264,26 @@ function OverviewTab({ user, setActiveTab }) {
   );
 }
 
-// ─── 2. GAMES TAB (CRUD) ──────────────────────────────
+const BLANK_TOURNAMENT = {
+  tournament_name: '', description: '', status: 'active',
+  team_limit: '', no_limit: true,
+  registration_start: '', registration_deadline: '', start_date: '', end_date: '',
+  is_paid: false, entry_fee: '', prize_pool: '', prize_type: 'cash',
+  num_rounds: 3,
+};
+const PRIZE_LABEL = { cash: 'Cash', gift_card: 'Gift Card', uc: 'UC', other: 'Other' };
+
+// ─── 2. GAMES TAB (create wizard + list) ──────────────
 function GamesTab({ showToast }) {
   const [games, setGames] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [formData, setFormData] = useState({ game_title: '', tournament_name: '', num_rounds: 3, status: 'active', description: '', start_date: '', end_date: '', registration_deadline: '', prize_pool: '' });
+  const [view, setView] = useState('list');   // list | wizard
+  const [step, setStep] = useState('game');    // game | form  (create)
   const [editingId, setEditingId] = useState(null);
+  const [selectedGame, setSelectedGame] = useState('');
+  const [form, setForm] = useState(BLANK_TOURNAMENT);
+  const [saving, setSaving] = useState(false);
 
-  // ISO (UTC) → value for <input type="datetime-local"> (local wall-clock, "YYYY-MM-DDTHH:mm")
   const toLocalInput = (iso) => {
     if (!iso) return '';
     const d = new Date(iso);
@@ -280,179 +293,258 @@ function GamesTab({ showToast }) {
 
   const fetchGames = () => {
     setLoading(true);
-    api.get('/games/all')
-      .then(res => setGames(res.data.games))
-      .catch(() => showToast('Failed to load games.', 'error'))
-      .finally(() => setLoading(false));
+    api.get('/games/all').then(res => setGames(res.data.games)).catch(() => showToast('Failed to load tournaments.', 'error')).finally(() => setLoading(false));
   };
+  useEffect(() => { fetchGames(); }, []);
 
-  useEffect(() => {
-    fetchGames();
-  }, []);
+  const change = (e) => setForm({ ...form, [e.target.name]: e.target.value });
 
-  const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.name === 'num_rounds' ? parseInt(e.target.value) : e.target.value });
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      if (editingId) {
-        await api.patch(`/games/${editingId}`, formData);
-        showToast('Tournament updated successfully.');
-      } else {
-        await api.post('/games/create', formData);
-        showToast('New tournament created.');
-      }
-      setFormData({ game_title: '', tournament_name: '', num_rounds: 3, status: 'active', description: '', start_date: '', end_date: '', registration_deadline: '', prize_pool: '' });
-      setEditingId(null);
-      fetchGames();
-    } catch (err) {
-      showToast('Failed to save tournament.', 'error');
-    }
-  };
-
+  const startCreate = () => { setEditingId(null); setSelectedGame(''); setForm(BLANK_TOURNAMENT); setStep('game'); setView('wizard'); };
+  const pickGame = (g) => { setSelectedGame(g); setStep('form'); };
   const startEdit = (g) => {
-    setEditingId(g.id);
-    setFormData({
-      game_title: g.game_title, tournament_name: g.tournament_name, num_rounds: g.num_rounds, status: g.status,
-      description: g.description || '', prize_pool: g.prize_pool || '',
-      start_date: toLocalInput(g.start_date), end_date: toLocalInput(g.end_date), registration_deadline: toLocalInput(g.registration_deadline),
+    setEditingId(g.id); setSelectedGame(g.game_title);
+    setForm({
+      tournament_name: g.tournament_name, description: g.description || '', status: g.status,
+      team_limit: g.team_limit ?? '', no_limit: g.team_limit == null,
+      registration_start: toLocalInput(g.registration_start), registration_deadline: toLocalInput(g.registration_deadline),
+      start_date: toLocalInput(g.start_date), end_date: toLocalInput(g.end_date),
+      is_paid: !!g.is_paid, entry_fee: g.entry_fee ?? '', prize_pool: g.prize_pool || '', prize_type: g.prize_type || 'cash',
+      num_rounds: g.num_rounds || 3,
     });
+    setStep('form'); setView('wizard');
+  };
+  const cancel = () => { setView('list'); setEditingId(null); setForm(BLANK_TOURNAMENT); };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    const payload = {
+      game_title: selectedGame,
+      tournament_name: form.tournament_name,
+      description: form.description,
+      status: form.status,
+      team_limit: form.no_limit ? '' : (form.team_limit || ''),
+      registration_start: form.registration_start,
+      registration_deadline: form.registration_deadline,
+      start_date: form.start_date,
+      end_date: form.end_date,
+      is_paid: form.is_paid,
+      entry_fee: form.is_paid ? (form.entry_fee || '') : '',
+      prize_pool: form.prize_pool,
+      prize_type: form.prize_type,
+    };
+    try {
+      if (editingId) { payload.num_rounds = form.num_rounds; await api.patch(`/games/${editingId}`, payload); showToast('Tournament updated.'); }
+      else { await api.post('/games/create', payload); showToast('Tournament created.'); }
+      setView('list'); setEditingId(null); setForm(BLANK_TOURNAMENT); fetchGames();
+    } catch (err) {
+      showToast(err.response?.data?.error || 'Failed to save tournament.', 'error');
+    } finally { setSaving(false); }
   };
 
   const deleteGame = async (id) => {
-    if (!window.confirm('Delete this tournament? This will delete all registered teams, players, and scoreboard scores!')) return;
-    try {
-      await api.delete(`/games/${id}`);
-      showToast('Tournament deleted successfully.');
-      fetchGames();
-    } catch (err) {
-      showToast('Failed to delete tournament.', 'error');
-    }
+    if (!window.confirm('Delete this tournament? This removes all its registrations and scores!')) return;
+    try { await api.delete(`/games/${id}`); showToast('Tournament deleted.'); fetchGames(); }
+    catch { showToast('Failed to delete tournament.', 'error'); }
   };
 
-  return (
-    <div style={{ animation: 'fadeIn var(--transition-base)' }}>
-      <div className="page-header">
-        <h1 className="page-title">Manage Tournaments</h1>
-        <p className="page-subtitle">Configure games, set tournament rounds, and toggle status</p>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-xl)' }}>
-        {/* Form */}
+  // ── Wizard step 1: choose the game ──
+  if (view === 'wizard' && !editingId && step === 'game') {
+    return (
+      <div style={{ animation: 'fadeIn var(--transition-base)' }}>
+        <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div><h1 className="page-title">New Tournament</h1><p className="page-subtitle">Step 1 — which game is this tournament for?</p></div>
+          <button className="btn btn-secondary btn-sm" onClick={cancel}>← Back</button>
+        </div>
         <section className="card">
-          <h3 style={{ marginBottom: 'var(--space-lg)' }}>{editingId ? 'Edit Tournament' : 'Create Tournament'}</h3>
-          <form onSubmit={handleSubmit}>
-            <div className="form-group">
-              <label className="form-label">Game Title</label>
-              <input id="game-title-input" name="game_title" className="form-input" value={formData.game_title} onChange={handleChange} placeholder="e.g. Valorant, PUBG, CS2" required />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Tournament Label / Name</label>
-              <input id="game-tourney-input" name="tournament_name" className="form-input" value={formData.tournament_name} onChange={handleChange} placeholder="e.g. Summer Esports Championship" required />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Number of Rounds</label>
-              <input id="game-rounds-input" name="num_rounds" type="number" min="1" max="10" className="form-input" value={formData.num_rounds} onChange={handleChange} required />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Status</label>
-              <select name="status" className="form-select" value={formData.status} onChange={handleChange}>
-                <option value="active">Active (visible to players)</option>
-                <option value="inactive">Inactive (hidden / draft)</option>
-              </select>
-            </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 'var(--space-md)' }}>
+            {ESPORTS_GAMES.map((g) => (
+              <button key={g} type="button" onClick={() => pickGame(g)}
+                style={{ cursor: 'pointer', textAlign: 'center', padding: 'var(--space-lg) var(--space-md)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', background: 'var(--surface-card)', color: 'inherit', transition: 'all .15s' }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--neon-blue)'; e.currentTarget.style.background = 'rgba(0,212,255,0.06)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.background = 'var(--surface-card)'; }}>
+                <div style={{ fontSize: '1.8rem' }}>🎮</div>
+                <div style={{ fontWeight: 700, color: 'var(--neon-blue)', marginTop: 6, fontSize: '0.9rem' }}>{g}</div>
+              </button>
+            ))}
+          </div>
+        </section>
+      </div>
+    );
+  }
 
-            <div style={{ borderTop: '1px solid var(--border-color)', margin: 'var(--space-md) 0', paddingTop: 'var(--space-sm)' }}>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px' }}>Event details (shown to players)</p>
-            </div>
+  // ── Wizard step 2 (create) / edit form ──
+  if (view === 'wizard') {
+    return (
+      <div style={{ animation: 'fadeIn var(--transition-base)' }}>
+        <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h1 className="page-title">{editingId ? 'Edit Tournament' : 'New Tournament'}</h1>
+            <p className="page-subtitle">{editingId ? 'Update your tournament' : 'Step 2 — tournament details'}</p>
+          </div>
+          <button className="btn btn-secondary btn-sm" onClick={cancel}>← Back</button>
+        </div>
 
+        <section className="card" style={{ maxWidth: 760 }}>
+          <div style={{ marginBottom: 'var(--space-lg)', display: 'flex', alignItems: 'center', gap: 'var(--space-sm)' }}>
+            <span className="badge badge-active" style={{ fontFamily: 'var(--font-heading)' }}>{selectedGame}</span>
+            {!editingId && <button type="button" className="auth-link-btn" style={{ fontSize: '0.8rem' }} onClick={() => setStep('game')}>change game</button>}
+          </div>
+
+          <form onSubmit={submit}>
+            <div className="form-group">
+              <label className="form-label">Tournament Title</label>
+              <input name="tournament_name" className="form-input" value={form.tournament_name} onChange={change} placeholder="e.g. Summer Valorant Championship" required />
+            </div>
             <div className="form-group">
               <label className="form-label">Description</label>
-              <textarea name="description" className="form-input" rows="3" value={formData.description} onChange={handleChange} placeholder="What's this tournament about — format, rules, who can join…" />
+              <textarea name="description" className="form-input" rows="3" value={form.description} onChange={change} placeholder="Format, rules, eligibility — anything players should know…" />
             </div>
-            <div style={{ display: 'flex', gap: 'var(--space-md)' }}>
-              <div className="form-group" style={{ flex: 1 }}>
-                <label className="form-label">Start Date</label>
-                <input name="start_date" type="datetime-local" className="form-input" value={formData.start_date} onChange={handleChange} />
+
+            <div className="form-group">
+              <label className="form-label">Team Registration Limit</label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                <input type="checkbox" checked={form.no_limit} onChange={(e) => setForm({ ...form, no_limit: e.target.checked })} style={{ accentColor: 'var(--neon-blue)' }} /> No limit (unlimited teams)
+              </label>
+              {!form.no_limit && (
+                <input name="team_limit" type="number" min="1" className="form-input" value={form.team_limit} onChange={change} placeholder="e.g. 100 — registration locks when full" />
+              )}
+              <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>You can raise or remove the limit later.</p>
+            </div>
+
+            <div style={{ display: 'flex', gap: 'var(--space-md)', flexWrap: 'wrap' }}>
+              <div className="form-group" style={{ flex: 1, minWidth: 200 }}>
+                <label className="form-label">Registration Opens</label>
+                <input name="registration_start" type="datetime-local" className="form-input" value={form.registration_start} onChange={change} />
               </div>
-              <div className="form-group" style={{ flex: 1 }}>
-                <label className="form-label">End Date (optional)</label>
-                <input name="end_date" type="datetime-local" className="form-input" value={formData.end_date} onChange={handleChange} />
+              <div className="form-group" style={{ flex: 1, minWidth: 200 }}>
+                <label className="form-label">Registration Closes</label>
+                <input name="registration_deadline" type="datetime-local" className="form-input" value={form.registration_deadline} onChange={change} />
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 'var(--space-md)' }}>
-              <div className="form-group" style={{ flex: 1 }}>
-                <label className="form-label">Registration Deadline</label>
-                <input name="registration_deadline" type="datetime-local" className="form-input" value={formData.registration_deadline} onChange={handleChange} />
+            <div style={{ display: 'flex', gap: 'var(--space-md)', flexWrap: 'wrap' }}>
+              <div className="form-group" style={{ flex: 1, minWidth: 200 }}>
+                <label className="form-label">Event Start</label>
+                <input name="start_date" type="datetime-local" className="form-input" value={form.start_date} onChange={change} />
               </div>
-              <div className="form-group" style={{ flex: 1 }}>
-                <label className="form-label">Prize Pool</label>
-                <input name="prize_pool" className="form-input" value={formData.prize_pool} onChange={handleChange} placeholder="e.g. $5,000" />
+              <div className="form-group" style={{ flex: 1, minWidth: 200 }}>
+                <label className="form-label">Event End (optional)</label>
+                <input name="end_date" type="datetime-local" className="form-input" value={form.end_date} onChange={change} />
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: 'var(--space-sm)' }}>
-              <button id="game-save-btn" type="submit" className="btn btn-primary">{editingId ? 'Update' : 'Create'}</button>
-              {editingId && (
-                <button type="button" className="btn btn-secondary" onClick={() => {
-                  setEditingId(null);
-                  setFormData({ game_title: '', tournament_name: '', num_rounds: 3, status: 'active', description: '', start_date: '', end_date: '', registration_deadline: '', prize_pool: '' });
-                }}>Cancel</button>
-              )}
+            <div className="form-group">
+              <label className="form-label">Entry</label>
+              <div style={{ display: 'flex', gap: 'var(--space-sm)' }}>
+                <button type="button" className={`btn btn-sm ${!form.is_paid ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setForm({ ...form, is_paid: false })}>Free</button>
+                <button type="button" className={`btn btn-sm ${form.is_paid ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setForm({ ...form, is_paid: true })}>Paid</button>
+              </div>
+            </div>
+            {form.is_paid && (
+              <div className="form-group">
+                <label className="form-label">Entry Fee (per team)</label>
+                <input name="entry_fee" type="number" min="0" className="form-input" value={form.entry_fee} onChange={change} placeholder="e.g. 500" />
+                <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>Online payment collection is coming soon — for now players just see this as the entry fee.</p>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 'var(--space-md)', flexWrap: 'wrap' }}>
+              <div className="form-group" style={{ flex: 1, minWidth: 200 }}>
+                <label className="form-label">Prize Pool (optional)</label>
+                <input name="prize_pool" className="form-input" value={form.prize_pool} onChange={change} placeholder="e.g. 50,000" />
+              </div>
+              <div className="form-group" style={{ flex: 1, minWidth: 160 }}>
+                <label className="form-label">Prize Type</label>
+                <select name="prize_type" className="form-select" value={form.prize_type} onChange={change}>
+                  <option value="cash">Cash</option>
+                  <option value="gift_card">Gift Card</option>
+                  <option value="uc">UC</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+            </div>
+
+            {editingId && (
+              <div style={{ display: 'flex', gap: 'var(--space-md)', flexWrap: 'wrap', borderTop: '1px solid var(--border-color)', paddingTop: 'var(--space-md)' }}>
+                <div className="form-group" style={{ flex: 1, minWidth: 160 }}>
+                  <label className="form-label">Number of Rounds</label>
+                  <input name="num_rounds" type="number" min="1" max="20" className="form-input" value={form.num_rounds} onChange={change} />
+                  <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>Set once registration closes and you know the team count.</p>
+                </div>
+                <div className="form-group" style={{ flex: 1, minWidth: 160 }}>
+                  <label className="form-label">Status</label>
+                  <select name="status" className="form-select" value={form.status} onChange={change}>
+                    <option value="active">Active (visible)</option>
+                    <option value="inactive">Inactive (hidden)</option>
+                  </select>
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 'var(--space-sm)', marginTop: 'var(--space-md)' }}>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? <span className="spinner"></span> : (editingId ? 'Save Changes' : 'Create Tournament')}</button>
+              <button type="button" className="btn btn-secondary" onClick={cancel}>Cancel</button>
             </div>
           </form>
         </section>
-
-        {/* List */}
-        <section className="card">
-          <h3 style={{ marginBottom: 'var(--space-lg)' }}>Active Tournaments</h3>
-          {loading ? (
-            <div style={{ textAlign: 'center', padding: 'var(--space-xl)' }}><span className="spinner"></span></div>
-          ) : games.length === 0 ? (
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No tournaments created yet.</p>
-          ) : (
-            <div className="table-container">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Title / Name</th>
-                    <th style={{ width: '110px' }}>Phase</th>
-                    <th style={{ width: '90px', textAlign: 'center' }}>Teams</th>
-                    <th style={{ width: '70px', textAlign: 'center' }}>Rounds</th>
-                    <th style={{ width: '150px', textAlign: 'right' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {games.map(g => (
-                    <tr key={g.id}>
-                      <td>
-                        <div style={{ fontWeight: 600 }}>{g.game_title}</div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{g.tournament_name}</div>
-                        {(fmtDate(g.start_date) || g.prize_pool) && (
-                          <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                            {fmtDate(g.start_date) && <span>🗓️ {fmtDate(g.start_date)}</span>}
-                            {g.prize_pool && <span style={{ color: 'var(--neon-cyan)', marginLeft: 8 }}>🏆 {g.prize_pool}</span>}
-                          </div>
-                        )}
-                      </td>
-                      <td><PhaseBadge g={g} /></td>
-                      <td style={{ textAlign: 'center' }}><span className="badge badge-active">{g.team_count || 0}</span></td>
-                      <td style={{ textAlign: 'center' }}>{g.num_rounds}</td>
-                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        <Link to="/scoreboard" className="btn btn-secondary btn-sm" style={{ padding: '0.25rem 0.5rem', marginRight: '4px' }} title="Public scoreboard">📊</Link>
-                        <button className="btn btn-secondary btn-sm" style={{ padding: '0.25rem 0.5rem', marginRight: '4px' }} onClick={() => startEdit(g)}>✏️</button>
-                        <button className="btn btn-danger btn-sm" style={{ padding: '0.25rem 0.5rem' }} onClick={() => deleteGame(g.id)}>🗑️</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
       </div>
+    );
+  }
+
+  // ── List view ──
+  return (
+    <div style={{ animation: 'fadeIn var(--transition-base)' }}>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div><h1 className="page-title">Tournaments</h1><p className="page-subtitle">Create and manage your tournaments</p></div>
+        <button className="btn btn-primary btn-sm" onClick={startCreate}>➕ New Tournament</button>
+      </div>
+      <section className="card">
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: 'var(--space-xl)' }}><span className="spinner"></span></div>
+        ) : games.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-state-icon">🎮</div>
+            <p className="empty-state-text">No tournaments yet — create your first one.</p>
+            <button className="btn btn-primary btn-sm" onClick={startCreate}>Create Tournament</button>
+          </div>
+        ) : (
+          <div className="table-container">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Title / Name</th>
+                  <th style={{ width: '110px' }}>Phase</th>
+                  <th style={{ width: '110px', textAlign: 'center' }}>Teams</th>
+                  <th style={{ width: '90px', textAlign: 'center' }}>Entry</th>
+                  <th style={{ width: '150px', textAlign: 'right' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {games.map(g => (
+                  <tr key={g.id}>
+                    <td>
+                      <div style={{ fontWeight: 600 }}>{g.game_title}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{g.tournament_name}</div>
+                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                        {fmtDate(g.start_date) && <span>🗓️ {fmtDate(g.start_date)}</span>}
+                        {g.prize_pool && <span style={{ color: 'var(--neon-cyan)', marginLeft: 8 }}>🏆 {g.prize_pool}{g.prize_type && g.prize_type !== 'cash' ? ` ${PRIZE_LABEL[g.prize_type] || ''}` : ''}</span>}
+                      </div>
+                    </td>
+                    <td><PhaseBadge g={g} /></td>
+                    <td style={{ textAlign: 'center' }}><span className="badge badge-active">{g.team_count || 0}{g.team_limit != null ? ` / ${g.team_limit}` : ''}</span></td>
+                    <td style={{ textAlign: 'center', fontSize: '0.8rem' }}>{g.is_paid ? <span style={{ color: 'var(--neon-cyan)' }}>₹{g.entry_fee ?? '—'}</span> : <span style={{ color: 'var(--text-muted)' }}>Free</span>}</td>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <Link to="/scoreboard" className="btn btn-secondary btn-sm" style={{ padding: '0.25rem 0.5rem', marginRight: '4px' }} title="Public scoreboard">📊</Link>
+                      <button className="btn btn-secondary btn-sm" style={{ padding: '0.25rem 0.5rem', marginRight: '4px' }} onClick={() => startEdit(g)}>✏️</button>
+                      <button className="btn btn-danger btn-sm" style={{ padding: '0.25rem 0.5rem' }} onClick={() => deleteGame(g.id)}>🗑️</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </div>
   );
 }

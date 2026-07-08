@@ -1,8 +1,7 @@
 /**
  * Unified Auth Page — ggBoard
- * One page for Sign In + Sign Up. Sign Up collects credentials, then hands off
- * to /auth/role where the visitor chooses Organizer or Player (account is
- * created there, so we never persist a role-less account).
+ * One page for Sign In + Sign Up. Sign Up is role-first: pick Organizer or
+ * Player, then enter credentials — the account is created in the matching table.
  */
 
 import { useState } from 'react';
@@ -23,6 +22,7 @@ export default function AuthPage() {
 
   const onChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
   const switchMode = (m) => { setMode(m); setError(''); };
+  const dest = (user) => (user.role === 'admin' ? '/admin/dashboard' : '/player');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -36,21 +36,17 @@ export default function AuthPage() {
     setLoading(true);
     try {
       if (mode === 'signup') {
-        // Create the account now (so duplicate-username shows here), then go pick a role.
-        const res = await api.post('/auth/signup', {
-          username,
-          password: form.password,
-          display_name: form.display_name.trim() || username,
-        });
-        login(res.data.user, res.data.token); // authenticated, role still pending
-        navigate('/auth/role');
+        // Credentials only here — the role is chosen on the next page, where the
+        // account is actually created. Check the username now so a duplicate shows here.
+        const { data } = await api.get('/auth/username-available', { params: { username } });
+        if (!data.available) { setError('That username is already taken.'); setLoading(false); return; }
+        navigate('/auth/role', { state: { username, password: form.password, display_name: form.display_name.trim() || username } });
         return;
       }
 
       const res = await api.post('/auth/login', { username, password: form.password });
       login(res.data.user, res.data.token);
-      if (res.data.user.rolePending) navigate('/auth/role');
-      else navigate(res.data.user.role === 'admin' ? '/admin/dashboard' : '/player');
+      navigate(dest(res.data.user));
     } catch (err) {
       setError(err.response?.data?.error || 'Something went wrong. Please try again.');
     } finally {
@@ -68,7 +64,7 @@ export default function AuthPage() {
             <div className="auth-icon">🎮</div>
             <h1 className="auth-title">{mode === 'signup' ? 'Create Account' : 'Welcome Back'}</h1>
             <p className="auth-subtitle">
-              {mode === 'signup' ? 'Create your GGBoard account — you\'ll pick your role next' : 'Sign in to your GGBoard account'}
+              {mode === 'signup' ? "Create your account — you'll pick your role next" : 'Sign in to your GGBoard account'}
             </p>
           </div>
 

@@ -45,22 +45,11 @@ function requireAuth(req, res, next) {
   verifyToken(req, res, next);
 }
 
-// A pending user (signed up but hasn't chosen a role) is blocked from every
-// role-gated route until they finish selecting. Tokens issued before this claim
-// existed have roleSelected === undefined → treated as already-selected.
-function isPending(req) {
-  return req.user.roleSelected === false;
-}
-function pendingBlocked(res) {
-  return res.status(403).json({ error: 'Please choose your account type to continue.', rolePending: true });
-}
-
 /**
- * Require admin role
+ * Require admin (organizer) role
  */
 function requireAdmin(req, res, next) {
   verifyToken(req, res, () => {
-    if (isPending(req)) return pendingBlocked(res);
     if (req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Admin access required.' });
     }
@@ -69,11 +58,10 @@ function requireAdmin(req, res, next) {
 }
 
 /**
- * Require team leader role
+ * Require team leader (player) role
  */
 function requireTeamLeader(req, res, next) {
   verifyToken(req, res, () => {
-    if (isPending(req)) return pendingBlocked(res);
     if (req.user.role !== 'team_leader') {
       return res.status(403).json({ error: 'Team leader access required.' });
     }
@@ -86,7 +74,6 @@ function requireTeamLeader(req, res, next) {
  */
 function requireAdminOrLeader(req, res, next) {
   verifyToken(req, res, () => {
-    if (isPending(req)) return pendingBlocked(res);
     if (req.user.role !== 'admin' && req.user.role !== 'team_leader') {
       return res.status(403).json({ error: 'Admin or team leader access required.' });
     }
@@ -95,22 +82,11 @@ function requireAdminOrLeader(req, res, next) {
 }
 
 /**
- * Generate a JWT token for a user
+ * Generate a JWT. `role` is 'admin' (organizer account) or 'team_leader' (player account),
+ * which also tells us which account table the id lives in.
  */
-function generateToken(user) {
-  // Team membership is no longer a single value on the token — a user can be on
-  // many teams (one per game); membership is queried from the DB when needed.
-  return jwt.sign(
-    {
-      id: user.id,
-      username: user.username,
-      role: user.role,
-      // undefined for pre-existing tokens; guards treat only explicit false as pending
-      roleSelected: user.role_selected === undefined ? undefined : !!user.role_selected
-    },
-    JWT_SECRET,
-    { expiresIn: '24h' }
-  );
+function generateToken({ id, username, role }) {
+  return jwt.sign({ id, username, role }, JWT_SECRET, { expiresIn: '24h' });
 }
 
 module.exports = {

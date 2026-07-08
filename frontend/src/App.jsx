@@ -3,8 +3,6 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import LandingPage from './pages/LandingPage';
 import AuthPage from './pages/AuthPage';
 import RoleSelect from './pages/RoleSelect';
-import CreateTeam from './pages/CreateTeam';
-import JoinTeam from './pages/JoinTeam';
 import PlayerHub from './pages/PlayerHub';
 import PublicScoreboard from './pages/PublicScoreboard';
 import AdminDashboard from './pages/AdminDashboard';
@@ -24,11 +22,6 @@ function ProtectedRoute({ children, requiredRole }) {
 
   if (!isAuthenticated) {
     return <Navigate to="/auth" replace />;
-  }
-
-  // Signed up but hasn't chosen a role yet — force the selection step first
-  if (user?.rolePending) {
-    return <Navigate to="/auth/role" replace />;
   }
 
   if (requiredRole && user.role !== requiredRole) {
