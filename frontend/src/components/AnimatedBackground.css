@@ -1,0 +1,32 @@
+/* Global Background — Subtle grid + violet/rose ambient glow */
+
+.global-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: var(--bg-primary);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.bg-bracket-lines {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 70% 50% at 50% 0%, black 20%, transparent 80%);
+}
+
+.bg-radial-glow {
+  position: absolute;
+  top: -150px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 900px;
+  height: 550px;
+  background: radial-gradient(ellipse at center, rgba(139, 92, 246, 0.1) 0%, rgba(236, 72, 153, 0.05) 50%, transparent 75%);
+  filter: blur(80px);
+  pointer-events: none;
+}

@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import AnimatedBackground from './components/AnimatedBackground';
 import LandingPage from './pages/LandingPage';
 import AuthPage from './pages/AuthPage';
 import RoleSelect from './pages/RoleSelect';
@@ -41,6 +42,7 @@ function ProtectedRoute({ children, requiredRole }) {
 export default function App() {
   return (
     <AuthProvider>
+      <AnimatedBackground />
       <Router>
         <Routes>
           {/* Public Routes */}

@@ -60,7 +60,6 @@ export default function AuthPage() {
 
   return (
     <div className="auth-page">
-      <div className="auth-bg"><div className="grid-overlay"></div></div>
       <div className="auth-container">
         <Link to="/" className="auth-back">← Back to Home</Link>
         <div className="auth-card">

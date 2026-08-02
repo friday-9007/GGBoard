@@ -1,11 +1,12 @@
 /**
- * Public Scoreboard Page — ggBoard
- * Displays active game titles and their sorted descending scoreboards.
+ * Public Scoreboard Page — ggBoard (Challonge-Style Tournament View)
+ * Displays active tournaments, game format tags, round breakdown, and sorted standings.
  */
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../utils/api';
+import './PublicScoreboard.css';
 
 export default function PublicScoreboard() {
   const [games, setGames] = useState([]);
@@ -13,15 +14,15 @@ export default function PublicScoreboard() {
   const [scoreboardData, setScoreboardData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [searchFilter, setSearchFilter] = useState('');
 
-  // Fetch all active games on mount
+  // Fetch active games
   useEffect(() => {
     setLoading(true);
     api.get('/games/active')
       .then(res => {
         setGames(res.data.games);
         if (res.data.games.length > 0) {
-          // Default to the most recent game
           setSelectedGameId(res.data.games[0].id);
         }
       })
@@ -29,21 +30,18 @@ export default function PublicScoreboard() {
       .finally(() => setLoading(false));
   }, []);
 
-  // Fetch scoreboard when selected game changes, then keep it live (15s polling)
+  // Fetch score data with silent refresh
   useEffect(() => {
     if (!selectedGameId) return;
 
     setLoading(true);
     setError('');
     api.get(`/scores/${selectedGameId}`)
-      .then(res => {
-        setScoreboardData(res.data);
-      })
-      .catch(() => setError('Failed to load scoreboard data.'))
+      .then(res => setScoreboardData(res.data))
+      .catch(() => setError('Failed to load standings.'))
       .finally(() => setLoading(false));
 
     const interval = setInterval(() => {
-      // Silent refresh — no spinner, keep stale data on transient failures
       api.get(`/scores/${selectedGameId}`)
         .then(res => setScoreboardData(res.data))
         .catch(() => {});
@@ -51,143 +49,160 @@ export default function PublicScoreboard() {
     return () => clearInterval(interval);
   }, [selectedGameId]);
 
+  // Filter games based on search
+  const filteredGames = games.filter(g =>
+    g.tournament_name.toLowerCase().includes(searchFilter.toLowerCase()) ||
+    g.game_title.toLowerCase().includes(searchFilter.toLowerCase())
+  );
+
   return (
-    <div className="page-container" style={{ paddingBottom: 'var(--space-3xl)' }}>
+    <div className="c-scoreboard-page">
+
       {/* Header */}
-      <header className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-md)' }}>
+      <header className="c-sb-header">
         <div>
-          <Link to="/" style={{ fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: 'var(--space-sm)' }}>
-            ← Back to Home
-          </Link>
-          <h1 className="page-title">Live Scoreboard</h1>
-          <p className="page-subtitle">Real-time tournament standings and match updates</p>
+          <Link to="/" className="c-back-link">← Back to Tournament Hub</Link>
+          <h1 className="c-sb-title">🏆 Live Tournament Scoreboards</h1>
+          <p className="c-sb-subtitle">Real-time round scores, standings, and ranked brackets</p>
         </div>
-        <div style={{ display: 'flex', gap: 'var(--space-sm)' }}>
-          <Link to="/join-team" className="btn btn-secondary btn-sm">Join a Team</Link>
-          <Link to="/create-team" className="btn btn-primary btn-sm">Register Team</Link>
+        <div className="c-sb-actions">
+          <Link to="/join-team" className="btn btn-secondary btn-sm">Join Squad</Link>
+          <Link to="/create-team" className="btn btn-primary btn-sm">+ Register Team</Link>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main>
-        {/* Game Selector */}
-        <section className="card" style={{ marginBottom: 'var(--space-xl)', padding: 'var(--space-lg)' }}>
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label">Select Tournament / Game</label>
-            <select
-              id="scoreboard-game-select"
-              className="form-select"
-              value={selectedGameId}
-              onChange={(e) => setSelectedGameId(e.target.value)}
-              disabled={loading && games.length === 0}
-            >
-              {games.length === 0 && <option value="">No active tournaments found</option>}
-              {games.map(g => (
-                <option key={g.id} value={g.id}>
-                  {g.tournament_name} — {g.game_title}
-                </option>
-              ))}
-            </select>
+      {/* Tournament Selector Sidebar & View */}
+      <div className="c-sb-layout">
+
+        {/* Left Tournament Selection Panel */}
+        <aside className="c-sb-sidebar card">
+          <div className="sb-sidebar-search">
+            <input
+              type="text"
+              className="form-input"
+              placeholder="Search tournaments..."
+              value={searchFilter}
+              onChange={(e) => setSearchFilter(e.target.value)}
+            />
           </div>
-        </section>
 
-        {/* Error State */}
-        {error && (
-          <div className="card" style={{ borderColor: 'var(--neon-pink)', background: 'rgba(255, 45, 149, 0.05)', textAlign: 'center', padding: 'var(--space-2xl)' }}>
-            <p style={{ color: 'var(--neon-pink)' }}>{error}</p>
-          </div>
-        )}
+          <span className="sb-sidebar-label">ACTIVE TOURNAMENTS ({filteredGames.length})</span>
 
-        {/* Loading Spinner */}
-        {loading && !scoreboardData && (
-          <div className="loading-overlay">
-            <div className="spinner spinner-lg"></div>
-            <p>Fetching scores...</p>
-          </div>
-        )}
-
-        {/* Scoreboard Data */}
-        {scoreboardData && !error && (
-          <section className="card card-glow" style={{ animation: 'slideUp 0.4s ease' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-lg)', flexWrap: 'wrap', gap: 'var(--space-sm)' }}>
-              <div>
-                <h2 style={{ fontSize: '1.2rem', color: 'var(--neon-blue)', marginBottom: '4px' }}>
-                  {scoreboardData.game.tournament_name}
-                </h2>
-                <span className="badge badge-active">{scoreboardData.game.game_title}</span>
-              </div>
-              <div style={{ textAlign: 'right', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                <span>Format: {scoreboardData.game.num_rounds} Rounds</span>
-              </div>
-            </div>
-
-            {/* Scoreboard Table */}
-            {scoreboardData.scoreboard.length === 0 ? (
-              <div className="empty-state">
-                <div className="empty-state-icon">🏆</div>
-                <p className="empty-state-text">No team scores uploaded for this tournament yet.</p>
-                <p style={{ fontSize: '0.8rem' }}>Check back soon as admin updates scores!</p>
-              </div>
+          <div className="sb-tournament-list">
+            {filteredGames.length === 0 ? (
+              <p className="sb-empty-list">No tournaments found</p>
             ) : (
-              <div className="table-container">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th style={{ width: '80px', textAlign: 'center' }}>Rank</th>
-                      <th>Team Name</th>
-                      {/* Dynamically create round headers up to num_rounds */}
-                      {Array.from({ length: scoreboardData.game.num_rounds }).map((_, i) => (
-                        <th key={i} style={{ textAlign: 'center', width: '100px' }}>Round {i + 1}</th>
-                      ))}
-                      <th style={{ width: '120px', textAlign: 'center', color: 'var(--neon-cyan)' }}>Total Score</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {scoreboardData.scoreboard.map((row) => {
-                      // Highlight top 3 styles
-                      let rankStyle = {};
-                      let rankBadge = row.rank;
-                      if (row.rank === 1) {
-                        rankStyle = { color: 'var(--neon-yellow)', fontWeight: 'bold' };
-                        rankBadge = '🥇';
-                      } else if (row.rank === 2) {
-                        rankStyle = { color: 'var(--text-primary)', fontWeight: 'bold' };
-                        rankBadge = '🥈';
-                      } else if (row.rank === 3) {
-                        rankStyle = { color: 'var(--neon-orange)', fontWeight: 'bold' };
-                        rankBadge = '🥉';
-                      }
+              filteredGames.map(g => (
+                <button
+                  key={g.id}
+                  className={`sb-tourn-item ${selectedGameId === g.id ? 'active' : ''}`}
+                  onClick={() => setSelectedGameId(g.id)}
+                >
+                  <div className="tourn-item-top">
+                    <span className="tourn-title">{g.tournament_name}</span>
+                    <span className="badge badge-live">LIVE</span>
+                  </div>
+                  <span className="tourn-game">{g.game_title}</span>
+                </button>
+              ))
+            )}
+          </div>
+        </aside>
 
-                      return (
-                        <tr key={row.team_id} style={row.rank <= 3 ? { background: 'rgba(0, 212, 255, 0.02)' } : {}}>
-                          <td style={{ textAlign: 'center', ...rankStyle, fontSize: row.rank <= 3 ? '1.1rem' : '0.9rem' }}>
-                            {rankBadge}
+        {/* Right Scoreboard View */}
+        <main className="c-sb-main card">
+          {error && (
+            <div className="sb-error-card">
+              <p>⚠️ {error}</p>
+            </div>
+          )}
+
+          {loading && !scoreboardData && (
+            <div className="loading-overlay">
+              <div className="spinner spinner-lg"></div>
+              <p>Fetching tournament standings...</p>
+            </div>
+          )}
+
+          {!loading && games.length === 0 && (
+            <div className="empty-state">
+              <div className="empty-state-icon">🏆</div>
+              <p>No active tournaments currently listed.</p>
+              <Link to="/auth?mode=signup" className="btn btn-primary btn-sm" style={{ marginTop: '1rem' }}>
+                + Host First Tournament
+              </Link>
+            </div>
+          )}
+
+          {scoreboardData && !error && (
+            <div>
+              {/* Tournament Meta Bar */}
+              <div className="c-sb-meta-bar">
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.4rem' }}>
+                    <h2 className="c-sb-game-title">{scoreboardData.game.tournament_name}</h2>
+                    <span className="badge badge-active">{scoreboardData.game.game_title}</span>
+                  </div>
+                  <div className="meta-details">
+                    <span><strong>Format:</strong> Round Robin</span>
+                    <span>•</span>
+                    <span><strong>Rounds:</strong> {scoreboardData.game.num_rounds}</span>
+                    <span>•</span>
+                    <span><strong>Teams:</strong> {scoreboardData.scoreboard.length} Squads</span>
+                  </div>
+                </div>
+
+                <div className="live-pulse-badge">
+                  <span className="pulse-dot"></span> UPDATED LIVE (15s)
+                </div>
+              </div>
+
+              {/* Scoreboard Table */}
+              {scoreboardData.scoreboard.length === 0 ? (
+                <div className="empty-state" style={{ padding: '3rem 0' }}>
+                  <p>No round scores recorded yet.</p>
+                </div>
+              ) : (
+                <div className="table-container">
+                  <table className="data-table c-standings-table">
+                    <thead>
+                      <tr>
+                        <th style={{ width: '60px', textAlign: 'center' }}>Rank</th>
+                        <th>Squad / Team Name</th>
+                        {Array.from({ length: scoreboardData.game.num_rounds }).map((_, i) => (
+                          <th key={i} style={{ textAlign: 'center', width: '85px' }}>R{i + 1}</th>
+                        ))}
+                        <th style={{ width: '100px', textAlign: 'right' }}>TOTAL PTS</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {scoreboardData.scoreboard.map((row) => (
+                        <tr key={row.team_id} className={row.rank <= 3 ? `rank-${row.rank}` : ''}>
+                          <td style={{ textAlign: 'center', fontWeight: '800' }}>
+                            {row.rank === 1 ? '🥇 1' : row.rank === 2 ? '🥈 2' : row.rank === 3 ? '🥉 3' : row.rank}
                           </td>
-                          <td style={{ fontWeight: row.rank <= 3 ? 600 : 400 }}>
+                          <td style={{ fontWeight: '700', color: 'var(--text-primary)' }}>
                             {row.team_name}
                           </td>
-                          {/* Render per-round scores, filling missing rounds with 0 */}
-                          {Array.from({ length: scoreboardData.game.num_rounds }).map((_, idx) => {
-                            const roundScore = row.round_scores[idx] !== undefined ? row.round_scores[idx] : 0;
-                            return (
-                              <td key={idx} style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>
-                                {roundScore}
-                              </td>
-                            );
-                          })}
-                          <td style={{ textAlign: 'center', fontWeight: 'bold', color: 'var(--neon-cyan)', fontSize: '1.05rem' }}>
+                          {Array.from({ length: scoreboardData.game.num_rounds }).map((_, idx) => (
+                            <td key={idx} style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>
+                              {row.round_scores[idx] !== undefined ? row.round_scores[idx] : 0}
+                            </td>
+                          ))}
+                          <td style={{ textAlign: 'right', fontWeight: '900', color: 'var(--accent-orange)', fontSize: '1.1rem' }}>
                             {row.total_score}
                           </td>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-        )}
-      </main>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </main>
+
+      </div>
     </div>
   );
 }

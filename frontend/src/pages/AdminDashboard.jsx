@@ -50,7 +50,7 @@ export default function AdminDashboard() {
   }, [activeTab]);
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-primary)' }}>
+    <div style={{ display: 'flex', minHeight: '100vh', background: 'transparent' }}>
       {/* Toast */}
       {toast && (
         <div className={`toast toast-${toast.type}`}>
@@ -61,12 +61,14 @@ export default function AdminDashboard() {
       {/* Sidebar */}
       <aside style={{
         width: 'var(--sidebar-width)',
-        background: 'var(--bg-secondary)',
+        background: 'rgba(14, 14, 24, 0.75)',
+        backdropFilter: 'blur(16px)',
+        WebkitBackdropFilter: 'blur(16px)',
         borderRight: '1px solid var(--border-color)',
         display: 'flex',
-        flexDirection: 'col',
         flexDirection: 'column',
-        padding: 'var(--space-lg)'
+        padding: 'var(--space-lg)',
+        boxShadow: '4px 0 24px rgba(0,0,0,0.3)'
       }}>
         {/* Logo */}
         <div style={{ marginBottom: 'var(--space-2xl)', textAlign: 'center' }}>

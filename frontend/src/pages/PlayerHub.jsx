@@ -46,23 +46,31 @@ export default function PlayerHub() {
       {loading ? (
         <div style={{ textAlign: 'center', padding: 'var(--space-2xl)' }}><span className="spinner spinner-lg"></span></div>
       ) : team ? (
-        <section className="card card-glow">
-          <h2 style={{ color: 'var(--neon-blue)', marginBottom: 'var(--space-xs)' }}>{team.team_name}</h2>
-          <p style={{ color: 'var(--text-muted)', marginBottom: 'var(--space-lg)' }}>
-            {team.tournament_name} · {team.game_title}
-          </p>
+        <section className="card card-glow" style={{ position: 'relative', overflow: 'hidden' }}>
+          <div style={{ position: 'absolute', top: '-40px', right: '-40px', width: '120px', height: '120px', background: 'radial-gradient(circle, rgba(0, 212, 255, 0.2) 0%, transparent 70%)', pointerEvents: 'none' }}></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', marginBottom: 'var(--space-md)' }}>
+            <div>
+              <h2 style={{ fontSize: '1.6rem', color: 'var(--text-primary)', fontFamily: 'var(--font-heading)' }}>{team.team_name}</h2>
+              <span className="badge badge-active" style={{ marginTop: '0.4rem' }}>{team.game_title}</span>
+            </div>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', background: 'rgba(0, 212, 255, 0.08)', border: '1px solid var(--border-accent)', padding: '0.3rem 0.8rem', borderRadius: 'var(--radius-xl)' }}>
+              {team.tournament_name}
+            </span>
+          </div>
 
-          <div style={{ marginBottom: 'var(--space-lg)' }}>
-            <label className="form-label">Team Join Code — share with teammates</label>
-            <div style={{ display: 'flex', gap: 'var(--space-sm)' }}>
-              <code style={{ flexGrow: 1, background: 'var(--bg-input)', padding: '0.6rem 0.8rem', borderRadius: 'var(--radius-md)', color: 'var(--neon-cyan)', fontFamily: 'var(--font-heading)', letterSpacing: '2px' }}>
+          <div style={{ background: 'rgba(6, 255, 210, 0.04)', border: '1px dashed rgba(6, 255, 210, 0.3)', borderRadius: 'var(--radius-md)', padding: '1.25rem', marginBottom: 'var(--space-xl)' }}>
+            <label className="form-label" style={{ color: 'var(--neon-cyan)', marginBottom: '0.4rem' }}>🛡️ Team Join Code — share with teammates</label>
+            <div style={{ display: 'flex', gap: 'var(--space-sm)', alignItems: 'center' }}>
+              <code style={{ flexGrow: 1, background: 'rgba(10, 10, 18, 0.8)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-md)', color: 'var(--neon-cyan)', fontFamily: 'var(--font-heading)', fontSize: '1.4rem', letterSpacing: '4px', textAlign: 'center', boxShadow: 'inset 0 0 10px rgba(0,0,0,0.5)' }}>
                 {team.unique_code}
               </code>
-              <button className="btn btn-secondary btn-sm" onClick={copyCode}>{copied ? 'Copied!' : 'Copy'}</button>
+              <button className="btn btn-primary btn-sm" style={{ padding: '0.75rem 1.25rem' }} onClick={copyCode}>
+                {copied ? '✓ Copied!' : '📋 Copy Code'}
+              </button>
             </div>
           </div>
 
-          <h3 style={{ marginBottom: 'var(--space-sm)' }}>Roster ({players.length})</h3>
+          <h3 style={{ marginBottom: 'var(--space-md)', color: 'var(--text-primary)' }}>Squad Roster ({players.length})</h3>
           {players.length === 0 ? (
             <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No teammates have joined yet — share your code above.</p>
           ) : (
